@@ -132,7 +132,10 @@ namespace Antmicro.Renode.Peripherals.GPIOPort
             for(var i = 0; i < NumberOfPins; i++)
             {
                 var state = ((value & 1u) == 1);
-                WritePin(i, state);
+                if(mode[i] == Mode.Output)
+                {
+                    WritePin(i, state);
+                }
 
                 value >>= 1;
             }
