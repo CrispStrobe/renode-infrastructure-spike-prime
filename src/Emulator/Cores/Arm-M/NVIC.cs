@@ -976,7 +976,7 @@ namespace Antmicro.Renode.Peripherals.IRQControllers
         /// <summary>
         /// Blocks writes to CCR.DIV_0_TRP register field so CPU wouldn't fault on integer division by 0
         /// </summary>
-        public bool FilterCcrDiv0Write { get; set; } = true;
+        public bool FilterCcrDiv0Write { get; set; } = false;
 
         [DefaultInterruptAttribute]
         public GPIO IRQ { get; private set; }
