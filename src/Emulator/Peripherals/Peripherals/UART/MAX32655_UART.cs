@@ -129,7 +129,7 @@ namespace Antmicro.Renode.Peripherals.UART
             ;
 
             Registers.ClockDivisor.Define(this)
-                .WithTag("clkdiv", 0, 20)
+                .WithValueField(0, 20, name: "clkdiv")
                 .WithReservedBits(20, 12)
             ;
 
