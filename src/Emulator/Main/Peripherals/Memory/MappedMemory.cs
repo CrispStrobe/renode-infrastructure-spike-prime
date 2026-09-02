@@ -65,12 +65,16 @@ namespace Antmicro.Renode.Peripherals.Memory
         public void TouchSegment(int segmentNo)
         {
             CheckSegmentNo(segmentNo);
-            if(segments[segmentNo] == IntPtr.Zero)
+            lock(segments)
             {
+                if(segments[segmentNo] != IntPtr.Zero)
+                {
+                    return;
+                }
+
                 var allocSeg = AllocateSegment(segmentNo);
                 var originalPointer = (long)allocSeg;
                 var alignedPointer = (IntPtr)((originalPointer + Alignment - 1) & ~(Alignment - 1));
-                segments[segmentNo] = alignedPointer;
                 if(UsingSharedMemory)
                 {
                     sharedSegments[segmentNo].AlignmentOffset = (ulong)alignedPointer - (ulong)allocSeg;
@@ -79,6 +83,7 @@ namespace Antmicro.Renode.Peripherals.Memory
                     allocSeg.ToInt64(), segmentNo, alignedPointer.ToInt64()));
                 originalPointers[segmentNo] = allocSeg;
                 LibCWrapper.MemSet(alignedPointer, ResetByte, SegmentSize);
+                segments[segmentNo] = alignedPointer;
                 SegmentTouched?.Invoke(segmentNo);
             }
         }
