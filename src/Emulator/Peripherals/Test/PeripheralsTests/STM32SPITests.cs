@@ -24,24 +24,18 @@ namespace Antmicro.Renode.PeripheralsTests
         {
             machine = new Machine();
             EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
-            spi = new STM32SPI(machine);
+            spi = new STM32SPI(machine, STM32Series.F4);
             target = new RecordingSPIPeripheral();
             requests = new RisingEdgeCounter();
             machine.SystemBus.Register(spi, new BusPointRegistration(SPIAddress));
             spi.Register(target, NullRegistrationPoint.Instance);
-            spi.DMATransmit.Connect(requests, 0);
+            spi.DMASend.Connect(requests, 0);
         }
 
         [TearDown]
         public void TearDown()
         {
             machine.Dispose();
-        }
-
-        [Test]
-        public void ShouldExposeBackwardCompatibleReceiveDMAName()
-        {
-            Assert.AreSame(spi.DMAReceive, spi.DMARecieve);
         }
 
         [Test]

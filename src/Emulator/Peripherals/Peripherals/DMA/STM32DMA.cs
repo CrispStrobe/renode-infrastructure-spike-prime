@@ -175,9 +175,9 @@ namespace Antmicro.Renode.Peripherals.DMA
                     return;
                 }
 
-                // Only transfers from peripheral are using interrupt driven approach.
-                // In other cases we can just transfer all data immediately.
-                if(direction.Value == Direction.PeripheralToMemory)
+                // Peripheral transfers are paced by the peripheral's request line.
+                // Memory-to-memory transfers are the only unpaced transfers.
+                if(direction.Value != Direction.MemoryToMemory)
                 {
                     PerformTransfer();
                 }
@@ -238,9 +238,7 @@ namespace Antmicro.Renode.Peripherals.DMA
 
             private void HandleEnable(bool value)
             {
-                // Only transfers from peripheral are using interrupt driven approach.
-                // In other cases we can just transfer all data immediately.
-                if(value && direction.Value != Direction.PeripheralToMemory)
+                if(value && direction.Value == Direction.MemoryToMemory)
                 {
                     PerformTransfer();
                 }
@@ -361,7 +359,7 @@ namespace Antmicro.Renode.Peripherals.DMA
                     requestedSize = (int)nrOfData.Value * MemoryDataSizeInBytes;
                     break;
                 case Direction.MemoryToPeripheral:
-                    requestedSize = (int)nrOfData.Value * PeripheralDataSizeInBytes;
+                    requestedSize = PeripheralDataSizeInBytes;
                     break;
                 case Direction.PeripheralToMemory:
                     requestedSize = directMode.Value ? FIFOThresholdInBytes : PeripheralDataSizeInBytes;
