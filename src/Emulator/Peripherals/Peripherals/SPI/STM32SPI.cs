@@ -20,7 +20,8 @@ namespace Antmicro.Renode.Peripherals.SPI
         {
             receiveBuffer = new CircularBuffer<byte>(bufferCapacity);
             IRQ = new GPIO();
-            DMARecieve = new GPIO();
+            DMAReceive = new GPIO();
+            DMATransmit = new GPIO();
             registers = new DoubleWordRegisterCollection(this);
             SetupRegisters();
             Reset();
@@ -75,7 +76,8 @@ namespace Antmicro.Renode.Peripherals.SPI
         public override void Reset()
         {
             IRQ.Unset();
-            DMARecieve.Unset();
+            DMAReceive.Unset();
+            DMATransmit.Unset();
             lock(receiveBuffer)
             {
                 receiveBuffer.Clear();
@@ -93,7 +95,13 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         public GPIO IRQ { get; }
 
-        public GPIO DMARecieve { get; }
+        public GPIO DMAReceive { get; }
+
+        // Keep the original misspelled name for compatibility with existing
+        // platform descriptions.
+        public GPIO DMARecieve => DMAReceive;
+
+        public GPIO DMATransmit { get; }
 
         private uint HandleDataRead()
         {
@@ -136,6 +144,17 @@ namespace Antmicro.Renode.Peripherals.SPI
                 this.NoisyLog("Transmitted 0x{0:X}, received 0x{1:X}.", value, response);
             }
             Update();
+            RequestTransmitDMA();
+        }
+
+        private void RequestTransmitDMA()
+        {
+            if(spiEnable.Value && txDmaEnable.Value)
+            {
+                // TXE is always set because transfers are instantaneous. Signal
+                // that the data register can accept the next DMA data unit.
+                DMATransmit.Blink();
+            }
         }
 
         private void Update()
@@ -163,11 +182,15 @@ namespace Antmicro.Renode.Peripherals.SPI
                     }
                 }, name: "MSTR")
                 .WithValueField(3, 3, name: "Baud") // Physical
-                .WithFlag(6, changeCallback: (oldValue, newValue) =>
+                .WithFlag(6, out spiEnable, changeCallback: (oldValue, newValue) =>
                 {
                     if(!newValue)
                     {
                         IRQ.Unset();
+                    }
+                    else
+                    {
+                        RequestTransmitDMA();
                     }
                 }, name: "SpiEnable")
                 .WithFlag(7, name: "LSBFIRST") // Physical
@@ -183,7 +206,13 @@ namespace Antmicro.Renode.Peripherals.SPI
 
             Registers.Control2.Define(registers)
                 .WithFlag(0, out rxDmaEnable, name: "RXDMAEN")
-                .WithTaggedFlag("TXDMAEN", 1)
+                .WithFlag(1, out txDmaEnable, changeCallback: (_, value) =>
+                {
+                    if(value)
+                    {
+                        RequestTransmitDMA();
+                    }
+                }, name: "TXDMAEN")
                 .WithTaggedFlag("SSOE", 2)
                 .WithReservedBits(3, 1)
                 .WithTaggedFlag("FRF", 4)
@@ -249,6 +278,7 @@ namespace Antmicro.Renode.Peripherals.SPI
         }
 
         private IFlagRegisterField txBufferEmptyInterruptEnable, rxBufferNotEmptyInterruptEnable, rxDmaEnable;
+        private IFlagRegisterField spiEnable, txDmaEnable;
 
         private readonly DoubleWordRegisterCollection registers;
 
