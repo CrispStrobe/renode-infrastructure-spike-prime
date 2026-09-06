@@ -28,7 +28,7 @@ namespace Antmicro.Renode.Peripherals.UART
 
         public void WriteChar(byte value)
         {
-            if(!usartEnabled.Value && !receiverEnabled.Value)
+            if(!usartEnabled.Value || !receiverEnabled.Value)
             {
                 this.Log(LogLevel.Warning, "Received a character, but the receiver is not enabled, dropping.");
                 return;
@@ -42,12 +42,12 @@ namespace Antmicro.Renode.Peripherals.UART
             }
             else
             {
-                // Setup a timeout of 1 UART frame (8 bits) for Idle line detection
+                // Set up a timeout of one complete UART frame for idle line detection.
                 idleLineDetectedCancellationTokenSrc?.Cancel();
 
-                var idleLineIn = (8 * 1000000) / BaudRate;
                 idleLineDetectedCancellationTokenSrc = new CancellationTokenSource();
-                machine.ScheduleAction(TimeInterval.FromMicroseconds(idleLineIn), _ => ReportIdleLineDetected(idleLineDetectedCancellationTokenSrc.Token), name: $"{nameof(STM32_UART)} Idle line detected");
+                var cancellationToken = idleLineDetectedCancellationTokenSrc.Token;
+                machine.ScheduleAction(IdleLineDetectionTime, _ => ReportIdleLineDetected(cancellationToken), name: $"{nameof(STM32_UART)} Idle line detected");
             }
 
             if(dmaReceptionRequest.Value)
@@ -63,6 +63,7 @@ namespace Antmicro.Renode.Peripherals.UART
             base.Reset();
             idleLineDetectedCancellationTokenSrc?.Cancel();
             receiveFifo.Clear();
+            idleLineClearArmed = false;
             IRQ.Set(false);
         }
 
@@ -104,6 +105,22 @@ namespace Antmicro.Renode.Peripherals.UART
                                         Parity.Odd) :
                                     Parity.None;
 
+        private TimeInterval IdleLineDetectionTime
+        {
+            get
+            {
+                // M specifies the complete word length, including parity when enabled.
+                // Keeping data and parity separate here makes all configured frame parts explicit.
+                var wordLength = nineBitWordLength.Value ? 9 : 8;
+                var parityBits = parityControlEnabled.Value ? 1 : 0;
+                var dataBits = wordLength - parityBits;
+                var stopBitCount = GetStopBitCount(stopBits.Value);
+                var frameBits = 1 + dataBits + parityBits + stopBitCount; // start + data + parity + stop
+                var frameTimeInMicroseconds = (ulong)Math.Ceiling(frameBits * 1000000.0 / BaudRate);
+                return TimeInterval.FromMicroseconds(frameTimeInMicroseconds);
+            }
+        }
+
         [DefaultInterrupt]
         public GPIO IRQ { get; } = new GPIO();
 
@@ -126,6 +143,7 @@ namespace Antmicro.Renode.Peripherals.UART
                 .WithTaggedFlag("LBD", 8)
                 .WithTaggedFlag("CTS", 9)
                 .WithReservedBits(10, 22)
+                .WithReadCallback((_, __) => idleLineClearArmed = idleLineDetected.Value)
                 .WithWriteCallback((_, __) => Update())
             ;
             Register.Data.Define(this, name: "USART_DR")
@@ -133,9 +151,12 @@ namespace Antmicro.Renode.Peripherals.UART
                     {
                         uint value = 0;
 
-                        // "Cleared by a USART_SR register followed by a read to the USART_DR register."
-                        // We can assume that USART_SR has already been read on the ISR.
-                        idleLineDetected.Value = false;
+                        // IDLE is cleared by a USART_SR read followed by a USART_DR read.
+                        if(idleLineClearArmed)
+                        {
+                            idleLineDetected.Value = false;
+                            idleLineClearArmed = false;
+                        }
 
                         if(receiveFifo.Count > 0)
                         {
@@ -146,7 +167,7 @@ namespace Antmicro.Renode.Peripherals.UART
                         return value;
                     }, writeCallback: (_, value) =>
                     {
-                        if(!usartEnabled.Value && !transmitterEnabled.Value)
+                        if(!usartEnabled.Value || !transmitterEnabled.Value)
                         {
                             this.Log(LogLevel.Warning, "Trying to transmit a character, but the transmitter is not enabled. dropping.");
                             return;
@@ -174,7 +195,7 @@ namespace Antmicro.Renode.Peripherals.UART
                 .WithEnumField(9, 1, out paritySelection, name: "PS")
                 .WithFlag(10, out parityControlEnabled, name: "PCE")
                 .WithTaggedFlag("WAKE", 11)
-                .WithTaggedFlag("M", 12)
+                .WithFlag(12, out nineBitWordLength, name: "M")
                 .WithFlag(13, out usartEnabled, name: "UE")
                 .WithReservedBits(14, 1)
                 .WithEnumField(15, 1, out oversamplingMode, name: "OVER8")
@@ -223,6 +244,7 @@ namespace Antmicro.Renode.Peripherals.UART
             if(!ct.IsCancellationRequested)
             {
                 idleLineDetected.Value = true;
+                idleLineClearArmed = false;
                 Update();
             }
         }
@@ -237,6 +259,23 @@ namespace Antmicro.Renode.Peripherals.UART
             );
         }
 
+        private static double GetStopBitCount(StopBitsValues value)
+        {
+            switch(value)
+            {
+            case StopBitsValues.Half:
+                return 0.5;
+            case StopBitsValues.One:
+                return 1;
+            case StopBitsValues.OneAndAHalf:
+                return 1.5;
+            case StopBitsValues.Two:
+                return 2;
+            default:
+                throw new ArgumentException("Invalid stop bits value");
+            }
+        }
+
         private CancellationTokenSource idleLineDetectedCancellationTokenSrc;
         private IFlagRegisterField transmissionComplete;
         private IFlagRegisterField readFifoNotEmpty;
@@ -249,6 +288,7 @@ namespace Antmicro.Renode.Peripherals.UART
         private IFlagRegisterField transmissionCompleteInterruptEnabled;
         private IEnumRegisterField<ParitySelection> paritySelection;
         private IFlagRegisterField parityControlEnabled;
+        private IFlagRegisterField nineBitWordLength;
         private IFlagRegisterField usartEnabled;
         private IEnumRegisterField<StopBitsValues> stopBits;
         private IFlagRegisterField dmaReceptionRequest;
@@ -256,6 +296,8 @@ namespace Antmicro.Renode.Peripherals.UART
         private IEnumRegisterField<OversamplingMode> oversamplingMode;
         private IFlagRegisterField transmitDataRegisterEmptyInterruptEnabled;
         private IValueRegisterField dividerFraction;
+
+        private bool idleLineClearArmed;
 
         private readonly uint frequency;
 
