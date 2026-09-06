@@ -158,6 +158,7 @@ namespace Antmicro.Renode.Peripherals.DMA
             public void Reset()
             {
                 dataOffset = 0;
+                initialNrOfData = 0;
                 IRQ.Unset();
             }
 
@@ -198,7 +199,7 @@ namespace Antmicro.Renode.Peripherals.DMA
                     .WithFlag(4, out transferCompleteIrqEnable, name: "TCIE")
                     .WithTaggedFlag("PFCTRL", 5)
                     .WithEnumField(6, 2, out direction, name: "DIR")
-                    .WithTaggedFlag("CIRC", 8)
+                    .WithFlag(8, out circularMode, name: "CIRC")
                     .WithFlag(9, out peripheralIncrementOffset, name: "PINC")
                     .WithFlag(10, out memoryIncrementOffset, name: "MINC")
                     .WithEnumField(11, 2, out peripheralDataSize, name: "PSIZE")
@@ -213,7 +214,8 @@ namespace Antmicro.Renode.Peripherals.DMA
                     .WithReservedBits(25, 7);
 
                 (Registers.StreamNumberOfData + streamOffset).Define(parent)
-                    .WithValueField(0, 16, out nrOfData, name: "NDT")
+                    .WithValueField(0, 16, out nrOfData, name: "NDT",
+                        writeCallback: (_, value) => initialNrOfData = value)
                     .WithReservedBits(16, 16);
 
                 (Registers.StreamPeripheralAddress + streamOffset).Define(parent)
@@ -260,6 +262,14 @@ namespace Antmicro.Renode.Peripherals.DMA
                     {
                         parent.transferCompleteIrqStatus[id].Value = true;
                         dataOffset = 0;
+                        if(circularMode.Value && direction.Value != Direction.MemoryToMemory)
+                        {
+                            nrOfData.Value = initialNrOfData;
+                        }
+                        else
+                        {
+                            isEnabled.Value = false;
+                        }
                         parent.UpdateInterrupts();
                     }
                 }
@@ -344,18 +354,27 @@ namespace Antmicro.Renode.Peripherals.DMA
 
             private int GetCurrentTransferSize()
             {
+                int requestedSize;
                 switch(direction.Value)
                 {
                 case Direction.MemoryToMemory:
-                    return (int)nrOfData.Value * MemoryDataSizeInBytes;
+                    requestedSize = (int)nrOfData.Value * MemoryDataSizeInBytes;
+                    break;
                 case Direction.MemoryToPeripheral:
-                    return (int)nrOfData.Value * PeripheralDataSizeInBytes;
+                    requestedSize = (int)nrOfData.Value * PeripheralDataSizeInBytes;
+                    break;
                 case Direction.PeripheralToMemory:
-                    return directMode.Value ? FIFOThresholdInBytes : PeripheralDataSizeInBytes;
+                    requestedSize = directMode.Value ? FIFOThresholdInBytes : PeripheralDataSizeInBytes;
+                    break;
                 default:
                     parent.WarningLog("Trying to get transfer size for Reserved DataSize. Defaulting to 0.");
                     return 0;
                 }
+
+                var dataUnitSize = direction.Value == Direction.PeripheralToMemory ?
+                    PeripheralDataSizeInBytes : MemoryDataSizeInBytes;
+                var remainingSize = (int)nrOfData.Value * dataUnitSize;
+                return System.Math.Min(requestedSize, remainingSize);
             }
 
             private int FIFOThresholdInBytes => (((int)fifoThreshold.Value + 1) * FIFOSizeInBytes) / 4;
@@ -366,6 +385,7 @@ namespace Antmicro.Renode.Peripherals.DMA
 
             private IFlagRegisterField isEnabled;
             private IFlagRegisterField transferCompleteIrqEnable;
+            private IFlagRegisterField circularMode;
             private IEnumRegisterField<Direction> direction;
             private IFlagRegisterField peripheralIncrementOffset;
             private IFlagRegisterField memoryIncrementOffset;
@@ -378,6 +398,7 @@ namespace Antmicro.Renode.Peripherals.DMA
             private IFlagRegisterField directMode;
 
             private ulong dataOffset;
+            private ulong initialNrOfData;
 
             private readonly STM32DMA parent;
             private readonly int id;

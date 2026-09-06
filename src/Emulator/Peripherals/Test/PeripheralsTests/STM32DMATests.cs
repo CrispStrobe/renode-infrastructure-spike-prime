@@ -212,7 +212,6 @@ namespace Antmicro.Renode.PeripheralsTests
             }
 
             public List<byte> WrittenBytes { get; } = new List<byte>();
-
             private byte nextValue;
         }
     }
