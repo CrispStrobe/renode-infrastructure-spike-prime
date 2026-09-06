@@ -20,8 +20,15 @@ namespace Antmicro.Renode.PeripheralsTests
         public void SetUp()
         {
             machine = new Machine();
+            EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
             uart = new STM32_UART(machine, Frequency);
             uart.WriteDoubleWord((long)Registers.BaudRate, BaudRateDivider);
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            machine.Dispose();
         }
 
         [Test]
@@ -122,7 +129,7 @@ namespace Antmicro.Renode.PeripheralsTests
             ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromMicroseconds(microseconds), true);
         }
 
-        private IMachine machine;
+        private Machine machine;
         private STM32_UART uart;
 
         private const uint Frequency = 16000000;

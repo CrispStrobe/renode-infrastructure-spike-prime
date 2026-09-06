@@ -4,6 +4,8 @@
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
 //
+using System.Collections.Generic;
+
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Core.Structure;
 using Antmicro.Renode.Peripherals.Bus;
@@ -77,6 +79,31 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.AreEqual(2, destination.ReadByte(0));
         }
 
+        [Test]
+        public void ShouldPaceMemoryToPeripheralTransferWithRequests()
+        {
+            destination.WriteBytes(0, new byte[] { 0x11, 0x22, 0x33 });
+            dma.WriteDoubleWord(StreamPeripheralAddress, SourceAddress);
+            dma.WriteDoubleWord(StreamMemory0Address, DestinationAddress);
+            dma.WriteDoubleWord(StreamNumberOfData, 3);
+            dma.WriteDoubleWord(StreamConfiguration,
+                StreamEnable | TransferCompleteInterruptEnable | MemoryIncrement | MemoryToPeripheral);
+
+            CollectionAssert.IsEmpty(source.WrittenBytes);
+            Assert.AreEqual(3, ReadNumberOfData());
+
+            dma.OnGPIO(0, true);
+            CollectionAssert.AreEqual(new byte[] { 0x11 }, source.WrittenBytes);
+            Assert.AreEqual(2, ReadNumberOfData());
+
+            dma.OnGPIO(0, true);
+            dma.OnGPIO(0, true);
+            CollectionAssert.AreEqual(new byte[] { 0x11, 0x22, 0x33 }, source.WrittenBytes);
+            Assert.AreEqual(0, ReadNumberOfData());
+            Assert.False(IsStreamEnabled());
+            Assert.True(IsTransferComplete());
+        }
+
         private void ConfigurePeripheralToMemory(uint numberOfData, bool circular, bool fifoEnabled)
         {
             dma.WriteDoubleWord(StreamPeripheralAddress, SourceAddress);
@@ -129,6 +156,7 @@ namespace Antmicro.Renode.PeripheralsTests
         private const uint TransferCompleteInterruptEnable = 1 << 4;
         private const uint CircularMode = 1 << 8;
         private const uint MemoryIncrement = 1 << 10;
+        private const uint MemoryToPeripheral = 1 << 6;
         private const uint TransferCompleteFlag = 1 << 5;
         private const uint FifoEnabledWithFullThreshold = (1 << 2) | 3;
 
@@ -141,12 +169,16 @@ namespace Antmicro.Renode.PeripheralsTests
 
             public void WriteByte(long offset, byte value)
             {
+                WrittenBytes.Add(value);
             }
 
             public void Reset()
             {
                 nextValue = 0;
+                WrittenBytes.Clear();
             }
+
+            public List<byte> WrittenBytes { get; } = new List<byte>();
 
             private byte nextValue;
         }

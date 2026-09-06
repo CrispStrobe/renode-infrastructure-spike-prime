@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Core.Structure;
 using Antmicro.Renode.Peripherals;
+using Antmicro.Renode.Peripherals.Bus;
 using Antmicro.Renode.Peripherals.SPI;
 
 using NUnit.Framework;
@@ -26,6 +27,7 @@ namespace Antmicro.Renode.PeripheralsTests
             spi = new STM32SPI(machine);
             target = new RecordingSPIPeripheral();
             requests = new RisingEdgeCounter();
+            machine.SystemBus.Register(spi, new BusPointRegistration(SPIAddress));
             spi.Register(target, NullRegistrationPoint.Instance);
             spi.DMATransmit.Connect(requests, 0);
         }
@@ -81,6 +83,7 @@ namespace Antmicro.Renode.PeripheralsTests
         private const long Data = 0xC;
         private const uint SPIEnable = 1 << 6;
         private const uint TransmitDMAEnable = 1 << 1;
+        private const uint SPIAddress = 0x40013000;
 
         private sealed class RecordingSPIPeripheral : ISPIPeripheral
         {
@@ -104,6 +107,11 @@ namespace Antmicro.Renode.PeripheralsTests
 
         private sealed class RisingEdgeCounter : IGPIOReceiver
         {
+            public void Reset()
+            {
+                Count = 0;
+            }
+
             public void OnGPIO(int number, bool value)
             {
                 if(value)
