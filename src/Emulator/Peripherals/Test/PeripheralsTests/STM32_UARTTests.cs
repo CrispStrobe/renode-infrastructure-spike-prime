@@ -76,6 +76,25 @@ namespace Antmicro.Renode.PeripheralsTests
             uart.WriteChar(TestByte);
 
             Assert.AreEqual(2, receiver.RisingEdges);
+            uart.ReadDoubleWord((long)Registers.Data);
+            Assert.AreEqual(3, receiver.RisingEdges);
+        }
+
+        [Test]
+        public void ShouldRequestTransmitDmaWhileTransmitterIsReady()
+        {
+            var receiver = new CountingGPIOReceiver();
+            uart.DMATransmit.Connect(receiver, 0);
+            uart.WriteDoubleWord((long)Registers.Control1, UsartEnable | TransmitterEnable);
+            uart.WriteDoubleWord((long)Registers.Control3, DmaTransmitEnable);
+            Assert.AreEqual(1, receiver.RisingEdges);
+
+            uart.WriteDoubleWord((long)Registers.Data, TestByte);
+            Assert.AreEqual(2, receiver.RisingEdges);
+
+            uart.WriteDoubleWord((long)Registers.Control3, 0);
+            uart.WriteDoubleWord((long)Registers.Data, TestByte);
+            Assert.AreEqual(2, receiver.RisingEdges);
         }
 
         [Test]
@@ -143,6 +162,7 @@ namespace Antmicro.Renode.PeripheralsTests
         private const uint UsartEnable = 1u << 13;
         private const uint TwoStopBits = 2u << 12;
         private const uint DmaReceptionEnable = 1u << 6;
+        private const uint DmaTransmitEnable = 1u << 7;
         private const uint IdleStatus = 1u << 4;
 
         private enum Registers

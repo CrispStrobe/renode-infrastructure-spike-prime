@@ -152,7 +152,10 @@ namespace Antmicro.Renode.Peripherals.SPI
             if(spiEnable.Value && txDmaEnable.Value)
             {
                 // TXE is always set because transfers are instantaneous. Signal
-                // that the data register can accept the next DMA data unit.
+                // that the data register can accept the next DMA data unit. A
+                // DMA write can synchronously reach this method while the prior
+                // pulse is still asserted, so release it before retriggering.
+                DMATransmit.Unset();
                 DMATransmit.Blink();
             }
         }

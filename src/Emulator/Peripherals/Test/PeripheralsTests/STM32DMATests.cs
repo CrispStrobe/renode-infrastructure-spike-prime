@@ -104,6 +104,39 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.True(IsTransferComplete());
         }
 
+        [Test]
+        public void ShouldPreserveTransmitRequestUntilStreamIsEnabled()
+        {
+            destination.WriteByte(0, 0xA5);
+            dma.WriteDoubleWord(StreamPeripheralAddress, SourceAddress);
+            dma.WriteDoubleWord(StreamMemory0Address, DestinationAddress);
+            dma.WriteDoubleWord(StreamNumberOfData, 1);
+            dma.WriteDoubleWord(StreamConfiguration, MemoryToPeripheral);
+
+            dma.OnGPIO(0, true);
+            CollectionAssert.IsEmpty(source.WrittenBytes);
+
+            dma.WriteDoubleWord(StreamConfiguration, StreamEnable | MemoryToPeripheral);
+            CollectionAssert.AreEqual(new byte[] { 0xA5 }, source.WrittenBytes);
+            Assert.AreEqual(0, ReadNumberOfData());
+            Assert.False(IsStreamEnabled());
+        }
+
+        [Test]
+        public void ShouldPreserveReceiveRequestUntilStreamIsEnabled()
+        {
+            dma.WriteDoubleWord(StreamPeripheralAddress, SourceAddress);
+            dma.WriteDoubleWord(StreamMemory0Address, DestinationAddress);
+            dma.WriteDoubleWord(StreamNumberOfData, 1);
+
+            dma.OnGPIO(0, true);
+            dma.WriteDoubleWord(StreamConfiguration, StreamEnable);
+
+            Assert.AreEqual(0, destination.ReadByte(0));
+            Assert.AreEqual(0, ReadNumberOfData());
+            Assert.False(IsStreamEnabled());
+        }
+
         private void ConfigurePeripheralToMemory(uint numberOfData, bool circular, bool fifoEnabled)
         {
             dma.WriteDoubleWord(StreamPeripheralAddress, SourceAddress);

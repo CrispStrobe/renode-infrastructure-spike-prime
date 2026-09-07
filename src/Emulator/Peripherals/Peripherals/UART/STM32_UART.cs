@@ -65,6 +65,8 @@ namespace Antmicro.Renode.Peripherals.UART
             receiveFifo.Clear();
             idleLineClearArmed = false;
             IRQ.Set(false);
+            DMARequest.Unset();
+            DMATransmit.Unset();
         }
 
         public uint BaudRate
@@ -126,6 +128,8 @@ namespace Antmicro.Renode.Peripherals.UART
 
         public GPIO DMARequest { get; } = new GPIO();
 
+        public GPIO DMATransmit { get; } = new GPIO();
+
         [field: Transient]
         public event Action<byte> CharReceived;
 
@@ -163,6 +167,13 @@ namespace Antmicro.Renode.Peripherals.UART
                             value = receiveFifo.Dequeue();
                         }
                         readFifoNotEmpty.Value = receiveFifo.Count > 0;
+                        if(readFifoNotEmpty.Value && dmaReceptionRequest.Value)
+                        {
+                            // RXNE stays asserted while buffered data remains.
+                            // Retrigger when a synchronous DMA read consumed one byte.
+                            DMARequest.Unset();
+                            DMARequest.Blink();
+                        }
                         Update();
                         return value;
                     }, writeCallback: (_, value) =>
@@ -175,6 +186,7 @@ namespace Antmicro.Renode.Peripherals.UART
                         CharReceived?.Invoke((byte)value);
                         transmissionComplete.Value = true;
                         Update();
+                        RequestTransmitDMA();
                     }, name: "DR"
                 )
             ;
@@ -207,6 +219,7 @@ namespace Antmicro.Renode.Peripherals.UART
                         idleLineDetectedCancellationTokenSrc?.Cancel();
                     }
                     Update();
+                    RequestTransmitDMA();
                 })
             ;
             Register.Control2.Define(this, name: "USART_CR2")
@@ -231,7 +244,13 @@ namespace Antmicro.Renode.Peripherals.UART
                 .WithTaggedFlag("NACK", 4)
                 .WithTaggedFlag("SCEN", 5)
                 .WithFlag(6, out dmaReceptionRequest, name: "DMAR")
-                .WithTaggedFlag("DMAT", 7)
+                .WithFlag(7, out dmaTransmitRequest, changeCallback: (_, value) =>
+                {
+                    if(value)
+                    {
+                        RequestTransmitDMA();
+                    }
+                }, name: "DMAT")
                 .WithTaggedFlag("RTSE", 8)
                 .WithTaggedFlag("CTSE", 9)
                 .WithTaggedFlag("CTSIE", 10)
@@ -246,6 +265,17 @@ namespace Antmicro.Renode.Peripherals.UART
                 idleLineDetected.Value = true;
                 idleLineClearArmed = false;
                 Update();
+            }
+        }
+
+        private void RequestTransmitDMA()
+        {
+            if(usartEnabled.Value && transmitterEnabled.Value && dmaTransmitRequest.Value)
+            {
+                // TXE remains asserted in this instantaneous byte model. Allow
+                // a synchronous DMA write to retrigger the next request.
+                DMATransmit.Unset();
+                DMATransmit.Blink();
             }
         }
 
@@ -292,6 +322,7 @@ namespace Antmicro.Renode.Peripherals.UART
         private IFlagRegisterField usartEnabled;
         private IEnumRegisterField<StopBitsValues> stopBits;
         private IFlagRegisterField dmaReceptionRequest;
+        private IFlagRegisterField dmaTransmitRequest;
 
         private IEnumRegisterField<OversamplingMode> oversamplingMode;
         private IFlagRegisterField transmitDataRegisterEmptyInterruptEnabled;
