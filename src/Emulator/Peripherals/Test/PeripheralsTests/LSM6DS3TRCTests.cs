@@ -86,6 +86,36 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.AreEqual(0x6A, device.RegisterSnapshot[0x0F]);
         }
 
+        [Test]
+        public void ShouldAdvanceDeterministicSamplesIntoFifo()
+        {
+            WriteRegister(0x12, 0x04);
+            device.SetNextSample(7, 1, 2, 3, 4, 5, 6);
+            device.AdvanceSample();
+            Assert.AreEqual(1, device.GeneratedSamples);
+            Assert.AreEqual(12, device.FifoBytes);
+            Assert.AreEqual(6, ReadRegister(0x3A));
+            device.Write(new byte[] { 0x3E });
+            CollectionAssert.AreEqual(new byte[] { 1, 0 }, device.Read(2));
+        }
+
+        [Test]
+        public void ShouldDriveDataReadyAndFifoThresholdInterrupts()
+        {
+            WriteRegister(0x0D, 0x01);
+            device.FeedAccelerationSample(1, 2, 3);
+            Assert.IsTrue(device.Connections[0].IsSet);
+            WriteRegister(0x12, 0x04);
+            device.Write(new byte[] { 0x28 });
+            device.Read(6);
+            Assert.IsFalse(device.Connections[0].IsSet);
+
+            WriteRegister(0x06, 0x06);
+            WriteRegister(0x0D, 0x08);
+            device.AdvanceSample();
+            Assert.IsTrue(device.Connections[0].IsSet);
+        }
+
         private byte ReadRegister(byte address)
         {
             device.Write(new byte[] { address });
