@@ -14,9 +14,17 @@ using Antmicro.Renode.Logging;
 
 namespace Antmicro.Renode.Peripherals.UART
 {
+    public static class LegoLpf2PortExtensions
+    {
+        public static void CreateLegoLpf2Port(this Emulation emulation, string name, string device = "none")
+        {
+            emulation.ExternalsManager.AddExternal(new LegoLpf2Port(device), name);
+        }
+    }
+
     // A byte-transport adapter for deterministic LEGO LPF2 devices. The device
     // contract below deliberately has no dependency on UART or Renode timing.
-    public class LegoLpf2Port : IUART
+    public class LegoLpf2Port : IUART, IExternal
     {
         public LegoLpf2Port(string device = "none")
         {
