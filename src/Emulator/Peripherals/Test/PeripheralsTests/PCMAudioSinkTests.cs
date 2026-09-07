@@ -12,6 +12,7 @@ namespace Antmicro.Renode.PeripheralsTests
         public void ShouldRecordDmaWritesDeterministically()
         {
             var sink = new PCMAudioSink(3);
+            sink.OnGPIO(0, true);
             sink.WriteByte(0, 1);
             sink.WriteByte(0, 2);
             sink.WriteByte(0, 3);
@@ -26,9 +27,24 @@ namespace Antmicro.Renode.PeripheralsTests
         public void ShouldReturnAndRemoveOldestSample()
         {
             var sink = new PCMAudioSink();
+            sink.OnGPIO(0, true);
             sink.WriteByte(0, 0x81);
             Assert.AreEqual(0x81, sink.ReadByte(0));
             Assert.AreEqual(0, sink.BufferedBytes);
+        }
+
+        [Test]
+        public void ShouldObserveAmplifierEnable()
+        {
+            var sink = new PCMAudioSink();
+            sink.OnGPIO(0, true);
+            Assert.IsTrue(sink.Enabled);
+            sink.Reset();
+            Assert.IsFalse(sink.Enabled);
+            sink.WriteByte(0, 0x55);
+            Assert.AreEqual(0, sink.BufferedBytes);
+            Assert.AreEqual(1, sink.DisabledBytes);
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => sink.WriteByte(1, 0));
         }
     }
 }
