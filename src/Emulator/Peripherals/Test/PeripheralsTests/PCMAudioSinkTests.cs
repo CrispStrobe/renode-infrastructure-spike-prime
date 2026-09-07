@@ -46,5 +46,20 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.AreEqual(1, sink.DisabledBytes);
             Assert.Throws<System.ArgumentOutOfRangeException>(() => sink.WriteByte(1, 0));
         }
+
+        [Test]
+        public void ShouldMaskAndPaceTwelveBitDacSamples()
+        {
+            var sink = new PCMAudioSink(2);
+            sink.OnGPIO(0, true);
+            sink.WriteWord(0, 0xF234);
+            sink.WriteWord(0, 0x0567);
+            Assert.AreEqual(2, sink.PendingSamples);
+            Assert.AreEqual(0, sink.EmittedSamples);
+            sink.AdvanceSampleClock();
+            Assert.AreEqual(0x234, sink.LastDacSample);
+            Assert.AreEqual(1, sink.EmittedSamples);
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => sink.AdvanceSampleClock(-1));
+        }
     }
 }

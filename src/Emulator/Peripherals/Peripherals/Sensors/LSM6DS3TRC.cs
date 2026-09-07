@@ -74,6 +74,7 @@ namespace Antmicro.Renode.Peripherals.Sensors
             registers[(byte)Registers.WhoAmI] = WhoAmIValue;
             address = 0;
             GeneratedSamples = 0;
+            sampleClockRemainder = 0;
             UpdateInterrupts();
         }
 
@@ -137,6 +138,30 @@ namespace Antmicro.Renode.Peripherals.Sensors
             GeneratedSamples++;
             UpdateFifoStatus();
             UpdateInterrupts();
+        }
+
+        // Advances the sensor's deterministic clock. ODR is taken from the
+        // accelerometer and gyroscope CTRL registers; the faster enabled rate
+        // drives the combined sample used by this bounded board-level model.
+        public void AdvanceTimeMicroseconds(ulong microseconds)
+        {
+            var rateMilliHertz = Math.Max(DecodeOdr(registers[(byte)Registers.Control1Accelerometer]),
+                DecodeOdr(registers[(byte)Registers.Control2Gyroscope]));
+            if(rateMilliHertz == 0 || microseconds == 0)
+            {
+                return;
+            }
+            if(microseconds > MaximumAdvanceMicroseconds)
+            {
+                throw new ArgumentOutOfRangeException(nameof(microseconds));
+            }
+            var scaled = checked(microseconds * (ulong)rateMilliHertz + sampleClockRemainder);
+            var count = scaled / MicrosecondsPerMilliHertzPeriod;
+            sampleClockRemainder = scaled % MicrosecondsPerMilliHertzPeriod;
+            for(ulong i = 0; i < count; ++i)
+            {
+                AdvanceSample();
+            }
         }
 
         private void WriteRegister(byte register, byte value)
@@ -223,6 +248,12 @@ namespace Antmicro.Renode.Peripherals.Sensors
         private int FifoThresholdWords => registers[(byte)Registers.FifoControl1]
             | ((registers[(byte)Registers.FifoControl2] & 0x7) << 8);
 
+        private static int DecodeOdr(byte control)
+        {
+            var index = (control >> 4) & 0xF;
+            return index < OdrMilliHertz.Length ? OdrMilliHertz[index] : 0;
+        }
+
         private void WriteVector(Registers firstRegister, short x, short y, short z)
         {
             var firstAddress = (byte)firstRegister;
@@ -250,10 +281,18 @@ namespace Antmicro.Renode.Peripherals.Sensors
         private const byte GyroscopeDataReady = 1 << 1;
         private const byte TemperatureDataReady = 1 << 2;
         private const int FifoCapacity = 4096;
+        private const ulong MicrosecondsPerMilliHertzPeriod = 1000000000;
+        private const ulong MaximumAdvanceMicroseconds = 60000000;
+        private static readonly int[] OdrMilliHertz =
+        {
+            0, 12500, 26000, 52000, 104000, 208000, 416000, 833000,
+            1660000, 3330000, 6660000,
+        };
 
         private readonly byte[] registers;
         private readonly Queue<byte> fifo;
         private short[] nextSample = new short[7];
+        private ulong sampleClockRemainder;
         private byte address;
 
         private enum Registers : byte
@@ -263,6 +302,8 @@ namespace Antmicro.Renode.Peripherals.Sensors
             Interrupt1Control = 0x0D,
             Interrupt2Control = 0x0E,
             WhoAmI = 0x0F,
+            Control1Accelerometer = 0x10,
+            Control2Gyroscope = 0x11,
             Control3 = 0x12,
             Status = 0x1E,
             TemperatureLow = 0x20,

@@ -72,6 +72,27 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.AreEqual(0, device.LatchedFrames);
         }
 
+        [Test]
+        public void ShouldDecodePrimeMatrixAndTrackGrayscalePhase()
+        {
+            var frame = new byte[TLC5955.FrameSize];
+            frame[38 * 2 + 1] = 0x12;
+            frame[38 * 2 + 2] = 0x34;
+            foreach(var value in frame)
+            {
+                device.Transmit(value);
+            }
+            device.OnGPIO(TLC5955.LatchGPIO, true);
+            device.OnGPIO(TLC5955.LatchGPIO, false);
+            Assert.AreEqual(0x1234, device.Matrix[0]);
+
+            device.OnGPIO(TLC5955.GrayscaleClockGPIO, true);
+            device.OnGPIO(TLC5955.GrayscaleClockGPIO, false);
+            device.OnGPIO(TLC5955.GrayscaleClockGPIO, true);
+            Assert.AreEqual(2, device.GrayscaleClockEdges);
+            Assert.AreEqual(2, device.GrayscalePhase);
+        }
+
         private TLC5955 device;
     }
 }

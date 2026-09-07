@@ -116,6 +116,20 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.IsTrue(device.Connections[0].IsSet);
         }
 
+        [Test]
+        public void ShouldScheduleSamplesFromConfiguredOdrWithoutWallClock()
+        {
+            WriteRegister(0x10, 0x40); // accelerometer 104 Hz
+            device.AdvanceTimeMicroseconds(9000);
+            Assert.AreEqual(0, device.GeneratedSamples);
+            device.AdvanceTimeMicroseconds(1000);
+            Assert.AreEqual(1, device.GeneratedSamples);
+            device.AdvanceTimeMicroseconds(10000);
+            Assert.AreEqual(2, device.GeneratedSamples);
+            Assert.Throws<System.ArgumentOutOfRangeException>(() =>
+                device.AdvanceTimeMicroseconds(60000001));
+        }
+
         private byte ReadRegister(byte address)
         {
             device.Write(new byte[] { address });
