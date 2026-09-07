@@ -50,6 +50,7 @@
     <Compile Include="BMC050Test.cs" />
     <Compile Include="STMCANTest.cs" />
     <Compile Include="LPC43xx_GPIO_Test.cs" />
+    <Compile Include="LSM6DS3TRCTests.cs" />
     <Compile Include="OpenTitan_AES_Test.cs" />
     <Compile Include="OpenTitan_KeyManagerTest.cs" />
     <Compile Include="OpenTitan_I2C_Test.cs" />
