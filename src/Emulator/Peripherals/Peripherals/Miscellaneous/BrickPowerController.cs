@@ -25,6 +25,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             PowerHold = false;
             ChargerMode = false;
             ShutdownRequested = false;
+            ChargeComplete = false;
             UpdateOutputs();
         }
 
@@ -60,6 +61,12 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             UpdateOutputs();
         }
 
+        public void SetChargeComplete(bool value)
+        {
+            ChargeComplete = value;
+            UpdateOutputs();
+        }
+
         public void ClearShutdownRequest()
         {
             ShutdownRequested = false;
@@ -68,15 +75,27 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public IReadOnlyDictionary<int, IGPIO> Connections { get; }
         public int BatteryMillivolts { get; private set; }
         public bool ChargerConnected { get; private set; }
+        public bool ChargeComplete { get; private set; }
         public bool PowerHold { get; private set; }
         public bool ChargerMode { get; private set; }
         public bool ShutdownRequested { get; private set; }
         public bool BatteryLow => BatteryMillivolts < LowBatteryThresholdMillivolts;
+        public ChargeStates ChargeState => !ChargerConnected ? ChargeStates.Disconnected
+            : ChargeComplete ? ChargeStates.Complete
+            : ChargerMode ? ChargeStates.Charging : ChargeStates.Suspended;
 
         private void UpdateOutputs()
         {
             Connections[PowerGoodOutput].Set(!BatteryLow || ChargerConnected);
-            Connections[ChargeStatusOutput].Set(ChargerConnected);
+            Connections[ChargeStatusOutput].Set(ChargeState == ChargeStates.Charging);
+        }
+
+        public enum ChargeStates
+        {
+            Disconnected,
+            Suspended,
+            Charging,
+            Complete,
         }
 
         public const int PowerHoldInput = 0;

@@ -5,6 +5,7 @@
 // Full license text is available in 'licenses/MIT.txt'.
 //
 using System;
+using System.Linq;
 
 using Antmicro.Renode.Core;
 
@@ -38,6 +39,16 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         public void OnGPIO(int number, bool value)
         {
+            if(number == GrayscaleClockGPIO)
+            {
+                if(!grayscaleClock && value)
+                {
+                    GrayscaleClockEdges++;
+                    GrayscalePhase = (GrayscalePhase + 1) & 0xFFFF;
+                }
+                grayscaleClock = value;
+                return;
+            }
             if(number != LatchGPIO)
             {
                 return;
@@ -47,6 +58,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             {
                 Array.Copy(shiftRegister, latchedRegister, FrameSize);
                 LatchedFrames++;
+                DecodeGrayscaleLatch();
             }
             latch = value;
         }
@@ -58,6 +70,10 @@ namespace Antmicro.Renode.Peripherals.SPI
             latch = false;
             TotalBytes = 0;
             LatchedFrames = 0;
+            Array.Clear(channels, 0, channels.Length);
+            grayscaleClock = false;
+            GrayscaleClockEdges = 0;
+            GrayscalePhase = 0;
         }
 
         public byte[] ShiftRegister => (byte[])shiftRegister.Clone();
@@ -68,11 +84,43 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         public ulong LatchedFrames { get; private set; }
 
+        // Channel order follows the MIT-licensed Pybricks Prime platform data:
+        // bytes 1..96 contain channels 0..47 as big-endian 16-bit values.
+        public ushort[] Channels => (ushort[])channels.Clone();
+
+        public ushort[] Matrix => MatrixChannels.Select(channel => channels[channel]).ToArray();
+
+        public ulong GrayscaleClockEdges { get; private set; }
+
+        public int GrayscalePhase { get; private set; }
+
         public const int FrameSize = 97;
         public const int LatchGPIO = 0;
+        public const int GrayscaleClockGPIO = 1;
+
+        private void DecodeGrayscaleLatch()
+        {
+            if((latchedRegister[0] & 1) != 0)
+            {
+                return; // control latch, not grayscale data
+            }
+            for(var channel = 0; channel < channels.Length; ++channel)
+            {
+                channels[channel] = (ushort)((latchedRegister[channel * 2 + 1] << 8)
+                    | latchedRegister[channel * 2 + 2]);
+            }
+        }
+
+        private static readonly int[] MatrixChannels =
+        {
+            38, 36, 41, 46, 33, 37, 28, 39, 47, 21, 24, 29, 31,
+            45, 23, 26, 27, 32, 34, 22, 25, 40, 30, 35, 9,
+        };
 
         private readonly byte[] shiftRegister;
         private readonly byte[] latchedRegister;
+        private readonly ushort[] channels = new ushort[48];
         private bool latch;
+        private bool grayscaleClock;
     }
 }

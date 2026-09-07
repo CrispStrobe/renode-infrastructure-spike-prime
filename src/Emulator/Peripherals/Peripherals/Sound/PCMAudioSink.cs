@@ -14,7 +14,7 @@ namespace Antmicro.Renode.Peripherals.Sound
 {
     // A DMA-addressable observation sink. It records PCM bytes without using
     // host audio, making snapshots and CI runs deterministic.
-    public class PCMAudioSink : IBytePeripheral, IKnownSize, IGPIOReceiver
+    public class PCMAudioSink : IBytePeripheral, IWordPeripheral, IKnownSize, IGPIOReceiver
     {
         public PCMAudioSink(int capacity = 65536)
         {
@@ -23,6 +23,7 @@ namespace Antmicro.Renode.Peripherals.Sound
                 throw new ArgumentOutOfRangeException(nameof(capacity));
             }
             samples = new Queue<byte>(capacity);
+            pendingSamples = new Queue<ushort>(capacity);
             Capacity = capacity;
         }
 
@@ -50,6 +51,43 @@ namespace Antmicro.Renode.Peripherals.Sound
             LastSample = value;
         }
 
+        public ushort ReadWord(long offset)
+        {
+            ValidateOffset(offset);
+            return pendingSamples.Count == 0 ? (ushort)0 : pendingSamples.Dequeue();
+        }
+
+        // DAC1 DHR12R1 consumes the low twelve bits. Samples remain pending
+        // until the deterministic TIM6-equivalent clock is advanced.
+        public void WriteWord(long offset, ushort value)
+        {
+            ValidateOffset(offset);
+            if(!Enabled)
+            {
+                DisabledSamples++;
+                return;
+            }
+            if(pendingSamples.Count == Capacity)
+            {
+                pendingSamples.Dequeue();
+                DroppedSamples++;
+            }
+            pendingSamples.Enqueue((ushort)(value & 0xFFF));
+        }
+
+        public void AdvanceSampleClock(int ticks = 1)
+        {
+            if(ticks < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(ticks));
+            }
+            while(ticks-- != 0 && pendingSamples.Count != 0)
+            {
+                LastDacSample = pendingSamples.Dequeue();
+                EmittedSamples++;
+            }
+        }
+
         public void OnGPIO(int number, bool value)
         {
             if(number == EnableGPIO)
@@ -61,11 +99,16 @@ namespace Antmicro.Renode.Peripherals.Sound
         public void Reset()
         {
             samples.Clear();
+            pendingSamples.Clear();
             TotalBytes = 0;
             DroppedBytes = 0;
             DisabledBytes = 0;
             LastSample = 0;
             Enabled = false;
+            LastDacSample = 0;
+            EmittedSamples = 0;
+            DroppedSamples = 0;
+            DisabledSamples = 0;
         }
 
         public byte[] Snapshot => samples.ToArray();
@@ -76,7 +119,12 @@ namespace Antmicro.Renode.Peripherals.Sound
         public ulong DroppedBytes { get; private set; }
         public ulong DisabledBytes { get; private set; }
         public bool Enabled { get; private set; }
-        public long Size => 1;
+        public ushort LastDacSample { get; private set; }
+        public int PendingSamples => pendingSamples.Count;
+        public ulong EmittedSamples { get; private set; }
+        public ulong DroppedSamples { get; private set; }
+        public ulong DisabledSamples { get; private set; }
+        public long Size => 2;
 
         public const int EnableGPIO = 0;
 
@@ -89,5 +137,6 @@ namespace Antmicro.Renode.Peripherals.Sound
         }
 
         private readonly Queue<byte> samples;
+        private readonly Queue<ushort> pendingSamples;
     }
 }

@@ -18,7 +18,13 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.IsFalse(power.Connections[0].IsSet);
             power.SetChargerConnected(true);
             Assert.IsTrue(power.Connections[0].IsSet);
+            Assert.AreEqual(BrickPowerController.ChargeStates.Suspended, power.ChargeState);
+            power.OnGPIO(BrickPowerController.ChargerModeInput, true);
             Assert.IsTrue(power.Connections[1].IsSet);
+            Assert.AreEqual(BrickPowerController.ChargeStates.Charging, power.ChargeState);
+            power.SetChargeComplete(true);
+            Assert.IsFalse(power.Connections[1].IsSet);
+            Assert.AreEqual(BrickPowerController.ChargeStates.Complete, power.ChargeState);
             Assert.Throws<System.ArgumentOutOfRangeException>(() => power.SetBatteryMillivolts(20001));
         }
 
