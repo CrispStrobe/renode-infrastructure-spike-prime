@@ -29,9 +29,10 @@ namespace Antmicro.Renode.PeripheralsTests
                 output.Clear();
 
                 // A complete but corrupt frame must be rejected without retaining input.
+                var payload = (byte)random.Next(256);
                 port.WriteChar(0xc0);
-                port.WriteChar((byte)random.Next(256));
-                port.WriteChar(0x00);
+                port.WriteChar(payload);
+                port.WriteChar((byte)((0xff ^ 0xc0 ^ payload) ^ 1));
                 Assert.AreEqual(1, port.InvalidFrames);
                 Assert.LessOrEqual(port.PendingTransmitBytes, LegoLpf2Port.MaximumTransmitQueueLength);
 
