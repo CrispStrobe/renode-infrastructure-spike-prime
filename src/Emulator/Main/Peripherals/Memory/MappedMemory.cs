@@ -79,11 +79,7 @@ namespace Antmicro.Renode.Peripherals.Memory
                     allocSeg.ToInt64(), segmentNo, alignedPointer.ToInt64()));
                 originalPointers[segmentNo] = allocSeg;
                 LibCWrapper.MemSet(alignedPointer, ResetByte, SegmentSize);
-                var segmentTouched = SegmentTouched;
-                if(segmentTouched != null)
-                {
-                    segmentTouched(segmentNo);
-                }
+                SegmentTouched?.Invoke(segmentNo);
             }
         }
 
