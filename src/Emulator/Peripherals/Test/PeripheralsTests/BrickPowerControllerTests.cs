@@ -25,6 +25,9 @@ namespace Antmicro.Renode.PeripheralsTests
             power.SetChargeComplete(true);
             Assert.IsFalse(power.Connections[1].IsSet);
             Assert.AreEqual(BrickPowerController.ChargeStates.Complete, power.ChargeState);
+            power.SetChargerConnected(false);
+            Assert.AreEqual(BrickPowerController.ChargeStates.Disconnected, power.ChargeState);
+            Assert.IsFalse(power.Connections[1].IsSet);
             Assert.Throws<System.ArgumentOutOfRangeException>(() => power.SetBatteryMillivolts(20001));
         }
 

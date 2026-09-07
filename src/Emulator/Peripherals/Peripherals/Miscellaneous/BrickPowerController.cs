@@ -42,6 +42,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             else if(number == ChargerModeInput)
             {
                 ChargerMode = value;
+                UpdateOutputs();
             }
         }
 
