@@ -89,6 +89,39 @@ namespace Antmicro.Renode.PeripheralsTests
         }
 
         [Test]
+        public void ShouldModelTechnicLargeMotorContractAndRecoverAfterFaults()
+        {
+            var motor = new Lpf2TechnicLargeMotor();
+            port.AttachDevice(motor);
+            port.StartNegotiation();
+            Assert.AreEqual(0x00, output[0]);
+            CollectionAssert.AreEqual(motor.DiscoveryBytes, output.Skip(1));
+            AssertSequenceExists(output, new byte[] { 0x40, 0x2e, 0x91 });
+            AssertSequenceExists(output, new byte[] { 0x49, 0x05, 0x03, 0xb0 });
+            AssertSequenceExists(output, new byte[] { 0x95, 0x04, 0x4d, 0x49, 0x4e, 0x00, 0x24 });
+            AssertSequenceExists(output, new byte[] { 0x93, 0x04, 0x44, 0x45, 0x47, 0x00, 0x2e });
+
+            port.WriteChar(0x04);
+            SendFrame(port, 0xc0, 80);
+            motor.SetLoad(50);
+            motor.Advance(1000);
+            Assert.AreEqual(420, motor.PositionDegrees);
+            motor.SetLoad(90);
+            motor.Advance(1000);
+            Assert.IsTrue(motor.Stalled);
+            Assert.AreEqual(420, motor.PositionDegrees);
+
+            port.WriteChar(0xc0);
+            port.WriteChar(10);
+            port.WriteChar(0); // corrupt checksum
+            Assert.AreEqual(1, port.InvalidFrames);
+            port.Detach();
+            port.Attach("large-motor");
+            Assert.AreEqual(Lpf2PortState.Attached, port.State);
+            Assert.IsInstanceOf<Lpf2TechnicLargeMotor>(port.Device);
+        }
+
+        [Test]
         public void ShouldHandleWriteCommandAndRejectInvalidMode()
         {
             var motor = new Lpf2MediumMotor();
@@ -238,6 +271,20 @@ namespace Antmicro.Renode.PeripheralsTests
             result.AddRange(payload);
             result.Add(result.Aggregate((byte)0xff, (checksum, value) => (byte)(checksum ^ value)));
             return result.ToArray();
+        }
+
+        private static byte[] Frame(byte header, params byte[] payload)
+        {
+            var result = new List<byte> { header };
+            result.AddRange(payload);
+            result.Add(result.Aggregate((byte)0xff, (checksum, value) => (byte)(checksum ^ value)));
+            return result.ToArray();
+        }
+
+        private static void AssertSequenceExists(IReadOnlyList<byte> haystack, IReadOnlyList<byte> needle)
+        {
+            Assert.IsTrue(Enumerable.Range(0, haystack.Count - needle.Count + 1)
+                .Any(offset => needle.SequenceEqual(haystack.Skip(offset).Take(needle.Count))));
         }
 
         private LegoLpf2Port port;

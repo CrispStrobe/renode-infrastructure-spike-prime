@@ -50,6 +50,10 @@ namespace Antmicro.Renode.Peripherals.UART
                 case "motor":
                     Device = new Lpf2MediumMotor();
                     break;
+                case "technic-large-motor":
+                case "large-motor":
+                    Device = new Lpf2TechnicLargeMotor();
+                    break;
                 default:
                     throw new ArgumentException($"Unsupported LPF2 device '{device}'", nameof(device));
             }
@@ -95,6 +99,17 @@ namespace Antmicro.Renode.Peripherals.UART
             }
 
             Transmit(0x00); // SYNC
+            var exactDiscovery = Device as IExactLpf2Discovery;
+            if(exactDiscovery != null)
+            {
+                foreach(var value in exactDiscovery.DiscoveryBytes)
+                {
+                    Transmit(value);
+                }
+                State = Lpf2PortState.WaitingForAck;
+                negotiationDeadline = EmulatedTimeMicroseconds + NegotiationTimeoutMicroseconds;
+                return;
+            }
             SendMessage(0x40, Device.TypeId);
             SendMessage(0x49, (byte)(Device.Modes.Count - 1), (byte)(Device.Modes.Count - 1));
             SendMessage(0x52, EncodeUInt32LittleEndian(BaudRate));
@@ -103,8 +118,9 @@ namespace Antmicro.Renode.Peripherals.UART
                 var name = new byte[8];
                 var source = System.Text.Encoding.ASCII.GetBytes(mode.Name);
                 Array.Copy(source, name, Math.Min(source.Length, name.Length));
-                SendMessage((byte)(0x98 | (mode.Number & 0x7)), new[] { (byte)0x00 }.Concat(name).ToArray());
-                SendMessage((byte)(0xa0 | (mode.Number & 0x7)), 0x80,
+                var extendedMode = mode.Number >= 8 ? (byte)0x20 : (byte)0x00;
+                SendMessage((byte)(0x98 | (mode.Number & 0x7)), new[] { extendedMode }.Concat(name).ToArray());
+                SendMessage((byte)(0xa0 | (mode.Number & 0x7)), (byte)(0x80 | extendedMode),
                     mode.Values, (byte)mode.DataType, 3, 0);
             }
             Transmit(0x04); // ACK: device information is complete.
