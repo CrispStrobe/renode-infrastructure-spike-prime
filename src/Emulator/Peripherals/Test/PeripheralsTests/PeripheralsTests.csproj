@@ -57,6 +57,7 @@
     <Compile Include="Cadence_TTCTests.cs" />
     <Compile Include="Cadence_UARTTests.cs" />
     <Compile Include="STM32_UARTTests.cs" />
+    <Compile Include="TLC5955Tests.cs" />
     <Compile Include="EFR32_I2CControllerTests.cs" />
     <Compile Include="FT5336Test.cs" />
   </ItemGroup>
