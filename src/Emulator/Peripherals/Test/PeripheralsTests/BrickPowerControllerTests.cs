@@ -19,6 +19,7 @@ namespace Antmicro.Renode.PeripheralsTests
             power.SetChargerConnected(true);
             Assert.IsTrue(power.Connections[0].IsSet);
             Assert.IsTrue(power.Connections[1].IsSet);
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => power.SetBatteryMillivolts(20001));
         }
 
         [Test]

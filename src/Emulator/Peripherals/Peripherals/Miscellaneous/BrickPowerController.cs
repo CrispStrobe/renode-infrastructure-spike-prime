@@ -16,7 +16,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public BrickPowerController(int initialBatteryMillivolts = 7400)
         {
             Connections = new Dictionary<int, IGPIO> { { 0, new GPIO() }, { 1, new GPIO() } };
-            BatteryMillivolts = initialBatteryMillivolts;
+            SetBatteryMillivolts(initialBatteryMillivolts);
             Reset();
         }
 
@@ -46,6 +46,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
 
         public void SetBatteryMillivolts(int value)
         {
+            if(value < MinimumBatteryMillivolts || value > MaximumBatteryMillivolts)
+            {
+                throw new System.ArgumentOutOfRangeException(nameof(value));
+            }
             BatteryMillivolts = value;
             UpdateOutputs();
         }
@@ -80,5 +84,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public const int PowerGoodOutput = 0;
         public const int ChargeStatusOutput = 1;
         public const int LowBatteryThresholdMillivolts = 6000;
+        public const int MinimumBatteryMillivolts = 0;
+        public const int MaximumBatteryMillivolts = 20000;
     }
 }
