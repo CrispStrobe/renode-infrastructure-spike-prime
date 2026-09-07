@@ -16,9 +16,10 @@ namespace Antmicro.Renode.Peripherals.UART
 {
     public static class LegoLpf2PortExtensions
     {
-        public static void CreateLegoLpf2Port(this Emulation emulation, string name, string device = "none")
+        public static void CreateLegoLpf2Port(this Emulation emulation, string name, string device = "none",
+            string gpio1Pin = "", string gpio2Pin = "")
         {
-            emulation.ExternalsManager.AddExternal(new LegoLpf2Port(device), name);
+            emulation.ExternalsManager.AddExternal(new LegoLpf2Port(device, gpio1Pin, gpio2Pin), name);
         }
     }
 
@@ -26,9 +27,12 @@ namespace Antmicro.Renode.Peripherals.UART
     // contract below deliberately has no dependency on UART or Renode timing.
     public class LegoLpf2Port : IUART, IExternal
     {
-        public LegoLpf2Port(string device = "none")
+        public LegoLpf2Port(string device = "none", string gpio1Pin = "", string gpio2Pin = "")
         {
             receiveBuffer = new List<byte>();
+            transmitBuffer = new Queue<byte>();
+            Gpio1Pin = gpio1Pin;
+            Gpio2Pin = gpio2Pin;
             Attach(device);
         }
 
@@ -49,19 +53,37 @@ namespace Antmicro.Renode.Peripherals.UART
                 default:
                     throw new ArgumentException($"Unsupported LPF2 device '{device}'", nameof(device));
             }
+            if(Device != null)
+            {
+                ValidateReportInterval(Device);
+            }
             ResetProtocol();
+            TopologyGeneration++;
+            attachmentReadyAt = EmulatedTimeMicroseconds + AttachmentSettleMicroseconds;
+            UpdateAttachmentState();
         }
 
         public void AttachDevice(ILpf2Device device)
         {
-            Device = device ?? throw new ArgumentNullException(nameof(device));
+            if(device == null)
+            {
+                throw new ArgumentNullException(nameof(device));
+            }
+            ValidateReportInterval(device);
+            Device = device;
             ResetProtocol();
+            TopologyGeneration++;
+            attachmentReadyAt = EmulatedTimeMicroseconds + AttachmentSettleMicroseconds;
+            UpdateAttachmentState();
         }
 
         public void Detach()
         {
             Device = null;
             ResetProtocol();
+            TopologyGeneration++;
+            attachmentReadyAt = 0;
+            UpdateAttachmentState();
         }
 
         public void StartNegotiation()
@@ -87,6 +109,7 @@ namespace Antmicro.Renode.Peripherals.UART
             }
             Transmit(0x04); // ACK: device information is complete.
             State = Lpf2PortState.WaitingForAck;
+            negotiationDeadline = EmulatedTimeMicroseconds + NegotiationTimeoutMicroseconds;
         }
 
         public void WriteChar(byte value)
@@ -98,6 +121,7 @@ namespace Antmicro.Renode.Peripherals.UART
             if(value == 0x04 && receiveBuffer.Count == 0)
             {
                 State = Lpf2PortState.Streaming;
+                nextReportAt = EmulatedTimeMicroseconds + Device.ReportIntervalMicroseconds;
                 SendCurrentData();
                 return;
             }
@@ -143,10 +167,43 @@ namespace Antmicro.Renode.Peripherals.UART
 
         public void Advance(uint milliseconds)
         {
-            Device?.Advance(milliseconds);
-            if(State == Lpf2PortState.Streaming)
+            AdvanceEmulatedTime((ulong)milliseconds * 1000);
+        }
+
+        public void AdvanceEmulatedTime(ulong microseconds)
+        {
+            var target = checked(EmulatedTimeMicroseconds + microseconds);
+            if(State == Lpf2PortState.Attached && attachmentReadyAt <= target)
             {
-                SendCurrentData();
+                AdvanceDeviceTo(attachmentReadyAt);
+                StartNegotiation();
+            }
+            if(State == Lpf2PortState.Streaming && nextReportAt != 0 && nextReportAt <= target)
+            {
+                var interval = Device.ReportIntervalMicroseconds;
+                var due = (target - nextReportAt) / interval + 1;
+                if(due > MaximumReportsPerAdvance)
+                {
+                    var skipped = due - MaximumReportsPerAdvance;
+                    AdvanceDeviceTo(nextReportAt + skipped * interval);
+                    nextReportAt += skipped * interval;
+                    CoalescedReports += skipped;
+                    due = MaximumReportsPerAdvance;
+                }
+                for(ulong i = 0; i < due; ++i)
+                {
+                    AdvanceDeviceTo(nextReportAt);
+                    SendCurrentData();
+                    nextReportAt += interval;
+                }
+            }
+            AdvanceDeviceTo(target);
+            if(State == Lpf2PortState.WaitingForAck && EmulatedTimeMicroseconds >= negotiationDeadline)
+            {
+                receiveBuffer.Clear();
+                expectedLength = 0;
+                State = Lpf2PortState.TimedOut;
+                Timeouts++;
             }
         }
 
@@ -162,13 +219,30 @@ namespace Antmicro.Renode.Peripherals.UART
         public ulong TransmittedFrames { get; private set; }
         public ulong ReceivedFrames { get; private set; }
         public ulong InvalidFrames { get; private set; }
+        public ulong Timeouts { get; private set; }
+        public ulong DroppedTransmitBytes { get; private set; }
+        public ulong CoalescedReports { get; private set; }
+        public ulong TopologyGeneration { get; private set; }
+        public ulong EmulatedTimeMicroseconds { get; private set; }
+        public bool Gpio1Attached { get; private set; }
+        public bool Gpio2Attached { get; private set; }
+        public string Gpio1Pin { get; }
+        public string Gpio2Pin { get; }
+        public int PendingTransmitBytes => transmitBuffer.Count;
 
         public Bits StopBits => Bits.One;
         public Parity ParityBit => Parity.None;
         public uint BaudRate => 115200;
 
-        [field: Transient]
-        public event Action<byte> CharReceived;
+        public event Action<byte> CharReceived
+        {
+            add
+            {
+                charReceived += value;
+                FlushTransmitBuffer();
+            }
+            remove { charReceived -= value; }
+        }
 
         private void HandleFrame(byte[] frame)
         {
@@ -235,7 +309,13 @@ namespace Antmicro.Renode.Peripherals.UART
 
         private void Transmit(byte value)
         {
-            CharReceived?.Invoke(value);
+            if(transmitBuffer.Count == MaximumTransmitQueueLength)
+            {
+                DroppedTransmitBytes++;
+                return;
+            }
+            transmitBuffer.Enqueue(value);
+            FlushTransmitBuffer();
         }
 
         private void ResetProtocol()
@@ -246,6 +326,50 @@ namespace Antmicro.Renode.Peripherals.UART
             TransmittedFrames = 0;
             ReceivedFrames = 0;
             InvalidFrames = 0;
+            Timeouts = 0;
+            DroppedTransmitBytes = 0;
+            CoalescedReports = 0;
+            negotiationDeadline = 0;
+            nextReportAt = 0;
+            transmitBuffer.Clear();
+        }
+
+        private void AdvanceDeviceTo(ulong target)
+        {
+            var elapsed = target - EmulatedTimeMicroseconds;
+            deviceAdvanceRemainder += elapsed;
+            var milliseconds = deviceAdvanceRemainder / 1000;
+            while(milliseconds > uint.MaxValue)
+            {
+                Device?.Advance(uint.MaxValue);
+                milliseconds -= uint.MaxValue;
+            }
+            Device?.Advance((uint)milliseconds);
+            deviceAdvanceRemainder %= 1000;
+            EmulatedTimeMicroseconds = target;
+        }
+
+        private void FlushTransmitBuffer()
+        {
+            while(charReceived != null && transmitBuffer.Count != 0)
+            {
+                charReceived(transmitBuffer.Dequeue());
+            }
+        }
+
+        private void UpdateAttachmentState()
+        {
+            // These are logical attachment indicators, not electrical ID-pin levels.
+            Gpio1Attached = Device != null;
+            Gpio2Attached = Device != null;
+        }
+
+        private static void ValidateReportInterval(ILpf2Device device)
+        {
+            if(device.ReportIntervalMicroseconds == 0)
+            {
+                throw new ArgumentException("LPF2 report interval must be nonzero", nameof(device));
+            }
         }
 
         private static int FrameLength(byte header)
@@ -292,9 +416,20 @@ namespace Antmicro.Renode.Peripherals.UART
             Transmit(0x02);
         }
 
-        private const int MaximumFrameLength = 35;
+        public const int MaximumFrameLength = 35;
+        public const int MaximumTransmitQueueLength = 512;
+        public const ulong MaximumReportsPerAdvance = 1024;
+        public const ulong AttachmentSettleMicroseconds = 10000;
+        public const ulong NegotiationTimeoutMicroseconds = 500000;
         private readonly List<byte> receiveBuffer;
+        private readonly Queue<byte> transmitBuffer;
+        [Transient]
+        private Action<byte> charReceived;
         private int expectedLength;
+        private ulong negotiationDeadline;
+        private ulong attachmentReadyAt;
+        private ulong nextReportAt;
+        private ulong deviceAdvanceRemainder;
     }
 
     public enum Lpf2PortState
@@ -303,5 +438,6 @@ namespace Antmicro.Renode.Peripherals.UART
         Attached,
         WaitingForAck,
         Streaming,
+        TimedOut,
     }
 }

@@ -18,6 +18,7 @@ namespace Antmicro.Renode.Peripherals.UART
         void AcceptOutput(byte mode, byte[] payload);
         void Advance(uint milliseconds);
         void Reset();
+        uint ReportIntervalMicroseconds { get; }
     }
 
     public sealed class Lpf2Mode
@@ -84,6 +85,7 @@ namespace Antmicro.Renode.Peripherals.UART
         public string Name => "Ultrasonic Sensor";
         public IReadOnlyList<Lpf2Mode> Modes { get; }
         public ushort DistanceMillimeters { get; private set; }
+        public uint ReportIntervalMicroseconds => 100000;
 
         private static byte[] EncodeLittleEndian(int value, int size)
         {
@@ -176,6 +178,7 @@ namespace Antmicro.Renode.Peripherals.UART
         public byte LoadPercent { get; private set; }
         public byte StallThresholdPercent { get; private set; }
         public bool Stalled { get; private set; }
+        public uint ReportIntervalMicroseconds => 100000;
 
         private void UpdateMotionState()
         {
