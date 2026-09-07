@@ -61,6 +61,7 @@
     <Compile Include="TLC5955Tests.cs" />
     <Compile Include="EFR32_I2CControllerTests.cs" />
     <Compile Include="FT5336Test.cs" />
+    <Compile Include="GenericSpiFlashW25Q256Tests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <ItemGroup>
