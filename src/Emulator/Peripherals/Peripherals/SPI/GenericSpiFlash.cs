@@ -25,7 +25,8 @@ namespace Antmicro.Renode.Peripherals.SPI
             bool writeStatusCanSetWriteEnable = true, byte extendedDeviceId = DefaultExtendedDeviceID,
             byte deviceConfiguration = DefaultDeviceConfiguration, byte remainingIdBytes = DefaultRemainingIDBytes,
             // "Sector" here is the largest erasable memory unit. It's also named "block" by many flash memory vendors.
-            int sectorSizeKB = DefaultSectorSizeKB, bool useStatusRegisterStubs = true)
+            int sectorSizeKB = DefaultSectorSizeKB, bool useStatusRegisterStubs = true,
+            byte? secondaryStatusRegisterReadCommand = null)
         {
             if(!Misc.IsPowerOfTwo((ulong)underlyingMemory.Size))
             {
@@ -71,6 +72,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             this.remainingIdBytes = remainingIdBytes;
             this.extendedDeviceId = extendedDeviceId;
             this.deviceConfiguration = deviceConfiguration;
+            this.secondaryStatusRegisterReadCommand = secondaryStatusRegisterReadCommand;
 
             deviceData = GetDeviceData();
             PrepareSFDPSignature();
@@ -210,7 +212,9 @@ namespace Antmicro.Renode.Peripherals.SPI
             {
                 return;
             }
-            underlyingMemory.WriteByte(position, val);
+            // Programming NOR flash can only clear bits. An erase operation is
+            // required before a cleared bit can become set again.
+            underlyingMemory.WriteByte(position, (byte)(underlyingMemory.ReadByte(position) & val));
         }
 
         protected bool TryVerifyWriteToMemory(out long position)
@@ -282,6 +286,12 @@ namespace Antmicro.Renode.Peripherals.SPI
             currentOperation.Operation = DecodedOperation.OperationType.None;
             currentOperation.State = DecodedOperation.OperationState.HandleCommand;
             currentOperation.DummyBytesRemaining = GetDummyBytes((Commands)firstByte);
+            if(secondaryStatusRegisterReadCommand.HasValue && firstByte == secondaryStatusRegisterReadCommand.Value)
+            {
+                currentOperation.Operation = DecodedOperation.OperationType.ReadRegister;
+                currentOperation.Register = (uint)Register.SecondaryStatus;
+                return;
+            }
             switch(firstByte)
             {
             case (byte)Commands.ReadID:
@@ -377,8 +387,16 @@ namespace Antmicro.Renode.Peripherals.SPI
                 break;
             case (byte)Commands.BulkErase:
             case (byte)Commands.ChipErase:
-                this.Log(LogLevel.Noisy, "Performing bulk/chip erase");
-                EraseChip();
+                if(enable.Value)
+                {
+                    this.Log(LogLevel.Noisy, "Performing bulk/chip erase");
+                    EraseChip();
+                    enable.Value = false;
+                }
+                else
+                {
+                    this.Log(LogLevel.Error, "Chip erase operation is disabled.");
+                }
                 break;
             case (byte)Commands.SubsectorErase4byte4kb:
                 currentOperation.Operation = DecodedOperation.OperationType.Erase;
@@ -518,6 +536,10 @@ namespace Antmicro.Renode.Peripherals.SPI
                 // The documentation states that at least 1 byte will be read
                 // If more than 1 byte is read, the same byte is returned
                 return statusRegister.Read();
+            case Register.SecondaryStatus:
+                // Meanings differ between device families. A configured
+                // second status-register opcode defaults to no asserted flags.
+                return 0;
             case Register.FlagStatus:
                 // The documentation states that at least 1 byte will be read
                 // If more than 1 byte is read, the same byte is returned
@@ -755,6 +777,7 @@ namespace Antmicro.Renode.Peripherals.SPI
         private readonly byte remainingIdBytes;
         private readonly byte extendedDeviceId;
         private readonly byte deviceConfiguration;
+        private readonly byte? secondaryStatusRegisterReadCommand;
         private const byte EmptySegment = 0xff;
         private const byte DeviceGeneration = 0x1;      // 2nd generation
         private const byte DefaultRemainingIDBytes = 0x10;
@@ -899,6 +922,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             NonVolatileConfiguration,
             VolatileConfiguration,
             EnhancedVolatileConfiguration,
+            SecondaryStatus,
             FirstNonstandardRegister,
         }
 
