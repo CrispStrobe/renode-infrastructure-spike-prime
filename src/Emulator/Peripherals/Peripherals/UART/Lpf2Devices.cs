@@ -251,13 +251,13 @@ namespace Antmicro.Renode.Peripherals.UART
             {
                 return;
             }
-            Power = Math.Max(-100, Math.Min(100, unchecked((sbyte)payload[0])));
+            Power = Math.Max(-100, Math.Min(100, (int)unchecked((sbyte)payload[0])));
             UpdateMotionState();
         }
 
         public void SetLoad(byte percent)
         {
-            LoadPercent = (byte)Math.Max(0, Math.Min(100, percent));
+            LoadPercent = (byte)Math.Max(0, Math.Min(100, (int)percent));
             UpdateMotionState();
         }
 
