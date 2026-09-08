@@ -37,7 +37,7 @@ namespace Antmicro.Renode.PeripheralsTests
         [TearDown]
         public void TearDown()
         {
-            machine.Dispose();
+            EmulationManager.Instance.CurrentEmulation.RemoveMachine(machine);
         }
 
         [Test]
