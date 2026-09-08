@@ -5,6 +5,7 @@ using Antmicro.Renode.Core;
 using Antmicro.Renode.Core.Structure;
 using Antmicro.Renode.Peripherals.Analog;
 using Antmicro.Renode.Peripherals.Bus;
+using Antmicro.Renode.Peripherals.Miscellaneous;
 using NUnit.Framework;
 
 namespace Antmicro.Renode.PeripheralsTests
@@ -21,7 +22,7 @@ namespace Antmicro.Renode.PeripheralsTests
             EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
             adc = new STM32_ADC(machine);
             machine.SystemBus.Register(adc, new BusPointRegistration(AdcAddress));
-            ladder = new PrimeButtonLadder(adc);
+            ladder = new PrimeButtonLadder(machine, adc);
         }
 
         [TearDown]
@@ -69,6 +70,35 @@ namespace Antmicro.Renode.PeripheralsTests
             machine.Reset();
             Assert.AreEqual(0xFFF, ReadChannel(14));
             Assert.AreEqual(0xFFF, ReadChannel(1));
+        }
+
+        [Test]
+        public void ShouldRegisterNameWireAndResetButtonFrontends()
+        {
+            machine.RegisterAsAChildOf(machine.SystemBus, ladder, NullRegistrationPoint.Instance);
+            machine.SetLocalName(ladder, "buttonLadders");
+            var button = new Button();
+            ladder.Register(button, new NumberRegistrationPoint<int>(0));
+            machine.SetLocalName(button, "centerButton");
+
+            CollectionAssert.Contains(machine.GetAllNames(), "sysbus.buttonLadders.centerButton");
+            button.IRQ.Set(true);
+            Assert.True(ladder.Center);
+            Assert.That(ReadChannel(14), Is.GreaterThan(2879).And.LessThan(3142));
+            ladder.Reset();
+            Assert.False(ladder.Center);
+            Assert.AreEqual(0xFFF, ReadChannel(14));
+
+            Assert.Throws<Antmicro.Renode.Exceptions.RegistrationException>(() =>
+                ladder.Register(new Button(), new NumberRegistrationPoint<int>(4)));
+
+            var unknown = new Button();
+            unknown.IRQ.Connect(ladder, 1);
+            unknown.IRQ.Set(true);
+            Assert.True(ladder.Left);
+            Assert.Throws<Antmicro.Renode.Exceptions.RegistrationException>(() => ladder.Unregister(unknown));
+            unknown.IRQ.Set(false);
+            Assert.False(ladder.Left);
         }
 
         private uint ReadChannel(uint channel)

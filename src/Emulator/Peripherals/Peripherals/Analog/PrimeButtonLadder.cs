@@ -4,17 +4,36 @@
 using System;
 
 using Antmicro.Renode.Core;
+using Antmicro.Renode.Core.Structure;
+using Antmicro.Renode.Exceptions;
+using Antmicro.Renode.Peripherals.Miscellaneous;
 
 namespace Antmicro.Renode.Peripherals.Analog
 {
     // SPIKE Prime's four user buttons share two resistor ladders. This bridge
     // turns deterministic digital button state into persistent ADC1 samples.
-    public class PrimeButtonLadder : IGPIOReceiver
+    public class PrimeButtonLadder : SimpleContainer<Button>, IGPIOReceiver
     {
-        public PrimeButtonLadder(STM32_ADC adc)
+        public PrimeButtonLadder(IMachine machine, STM32_ADC adc) : base(machine)
         {
             this.adc = adc;
             Reset();
+        }
+
+        public override void Register(Button button, NumberRegistrationPoint<int> registrationPoint)
+        {
+            if(registrationPoint.Address < 0 || registrationPoint.Address >= ButtonCount)
+            {
+                throw new RegistrationException("Prime button index is outside the supported ladder inputs.");
+            }
+            base.Register(button, registrationPoint);
+            button.IRQ.Connect(this, registrationPoint.Address);
+        }
+
+        public override void Unregister(Button button)
+        {
+            base.Unregister(button);
+            button.IRQ.Disconnect();
         }
 
         public void OnGPIO(int number, bool value)
@@ -27,7 +46,7 @@ namespace Antmicro.Renode.Peripherals.Analog
             UpdateSamples();
         }
 
-        public void Reset()
+        public override void Reset()
         {
             Array.Clear(pressed, 0, pressed.Length);
             UpdateSamples();
