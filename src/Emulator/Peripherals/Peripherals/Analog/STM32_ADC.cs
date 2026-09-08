@@ -105,6 +105,7 @@ namespace Antmicro.Renode.Peripherals.Analog
 
         public long Size => 0x50;
 
+        [DefaultInterrupt]
         public GPIO IRQ { get; } = new GPIO();
 
         public GPIO DMARequest { get; } = new GPIO();
