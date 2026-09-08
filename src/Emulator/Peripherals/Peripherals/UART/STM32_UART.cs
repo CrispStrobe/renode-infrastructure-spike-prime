@@ -64,6 +64,7 @@ namespace Antmicro.Renode.Peripherals.UART
                 receiverThread?.Stop();
                 intermediateReceiveQueue.Clear();
             }
+            idleLineClearArmed = false;
             receiveFifo.Clear();
             IRQ.Set(false);
         }
@@ -184,6 +185,7 @@ namespace Antmicro.Renode.Peripherals.UART
                 .WithTaggedFlag("LBD", 8)
                 .WithTaggedFlag("CTS", 9)
                 .WithReservedBits(10, 22)
+                .WithReadCallback((_, __) => idleLineClearArmed = idleLineDetected.Value)
                 .WithWriteCallback((_, __) => Update())
             ;
             Register.Data.Define(this, name: "USART_DR")
@@ -191,9 +193,12 @@ namespace Antmicro.Renode.Peripherals.UART
                     {
                         uint value = 0;
 
-                        // "Cleared by a USART_SR register followed by a read to the USART_DR register."
-                        // We can assume that USART_SR has already been read on the ISR.
-                        idleLineDetected.Value = false;
+                        // IDLE is cleared by a USART_SR read followed by a USART_DR read.
+                        if(idleLineClearArmed)
+                        {
+                            idleLineDetected.Value = false;
+                            idleLineClearArmed = false;
+                        }
 
                         if(receiveFifo.Count > 0)
                         {
@@ -204,7 +209,7 @@ namespace Antmicro.Renode.Peripherals.UART
                         return value;
                     }, writeCallback: (_, value) =>
                     {
-                        if(!usartEnabled.Value && !transmitterEnabled.Value)
+                        if(!usartEnabled.Value || !transmitterEnabled.Value)
                         {
                             this.Log(LogLevel.Warning, "Trying to transmit a character, but the transmitter is not enabled. dropping.");
                             return;
@@ -233,13 +238,7 @@ namespace Antmicro.Renode.Peripherals.UART
                 .WithEnumField(9, 1, out paritySelection, name: "PS")
                 .WithFlag(10, out parityControlEnabled, name: "PCE")
                 .WithTaggedFlag("WAKE", 11)
-                .WithFlag(12, out wordLength0, name: "M",
-                    changeCallback: (_, __) =>
-                    {
-                        this.WarningLog("9-bit word mode is not implemented");
-                        wordLength0.Value = false;
-                    }
-                )
+                .WithFlag(12, out wordLength0, name: "M")
                 .WithFlag(13, out usartEnabled, name: "UE")
                 .WithReservedBits(14, 1)
                 .WithEnumField(15, 1, out oversamplingMode, name: "OVER8")
@@ -289,6 +288,7 @@ namespace Antmicro.Renode.Peripherals.UART
             if(!ct.IsCancellationRequested)
             {
                 idleLineDetected.Value = true;
+                idleLineClearArmed = false;
                 Update();
             }
         }
@@ -415,6 +415,7 @@ namespace Antmicro.Renode.Peripherals.UART
         private uint baudrate;
         private bool autoUpdateDelay;
         private double delayMultiplier = 1;
+        private bool idleLineClearArmed;
 
         private IManagedThread receiverThread;
 
