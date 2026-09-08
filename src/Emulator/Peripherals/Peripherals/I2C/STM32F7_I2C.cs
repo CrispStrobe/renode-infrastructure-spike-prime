@@ -23,6 +23,7 @@ namespace Antmicro.Renode.Peripherals.I2C
             EventInterrupt = new GPIO();
             ErrorInterrupt = new GPIO();
             DmaReceive = new GPIO();
+            DmaTransmit = new GPIO();
             registers = CreateRegisters();
             Reset();
         }
@@ -46,6 +47,8 @@ namespace Antmicro.Renode.Peripherals.I2C
             transferOutgoing = false;
             EventInterrupt.Unset();
             ErrorInterrupt.Unset();
+            DmaReceive.Unset();
+            DmaTransmit.Unset();
             masterMode = false;
         }
 
@@ -110,6 +113,8 @@ namespace Antmicro.Renode.Peripherals.I2C
 
         public GPIO DmaReceive { get; }
 
+        public GPIO DmaTransmit { get; }
+
         public bool RxNotEmpty => rxData.Count > 0;
 
         public bool OwnAddress1Enabled => ownAddress1Enabled.Value;
@@ -130,7 +135,7 @@ namespace Antmicro.Renode.Peripherals.I2C
                         .WithTag("DNF", 8, 4)
                         .WithTag("ANFOFF", 12, 1)
                         .WithReservedBits(13, 1)
-                        .WithTag("TXDMAEN", 14, 1)
+                        .WithFlag(14, out txDmaTransmit, name: "TXDMAEN")
                         .WithFlag(15, out rxDmaReceive, name: "RXDMAEN")
                         .WithTag("SBC", 16, 1)
                         .WithFlag(17, out noStretch, name: "NOSTRETCH")
@@ -397,6 +402,7 @@ namespace Antmicro.Renode.Peripherals.I2C
 
         private void HandleTransmitDataWrite(uint newValue)
         {
+            DmaTransmit.Unset();
             if(masterMode)
             {
                 MasterTransmitDataWrite(newValue);
@@ -405,6 +411,7 @@ namespace Antmicro.Renode.Peripherals.I2C
             {
                 SlaveTransmitDataWrite(newValue);
             }
+            Update();
         }
 
         private void MasterTransmitDataWrite(uint newValue)
@@ -467,6 +474,7 @@ namespace Antmicro.Renode.Peripherals.I2C
             EventInterrupt.Set(value);
 
             DmaReceive.Set(rxDmaReceive.Value && rxData.Count > 0);
+            DmaTransmit.Set(txDmaTransmit.Value && masterMode && !isReadTransfer.Value && transmitInterruptStatus);
         }
 
         private II2CPeripheral currentSlave;
@@ -503,6 +511,7 @@ namespace Antmicro.Renode.Peripherals.I2C
         private IFlagRegisterField start;
         private IFlagRegisterField stop;
         private IFlagRegisterField rxDmaReceive;
+        private IFlagRegisterField txDmaTransmit;
 
         private readonly DoubleWordRegisterCollection registers;
 
