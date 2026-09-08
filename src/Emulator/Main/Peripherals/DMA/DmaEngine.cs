@@ -149,7 +149,7 @@ namespace Antmicro.Renode.Peripherals.DMA
                     // Source         |  A  |  B  |  C  |  D  |
                     // Destination    |  D  |     |     |     |
                     var skipCount = (request.Size == writeLengthInBytes) ? 0 : request.Size - writeLengthInBytes;
-                    DebugHelper.Assert((skipCount + request.Size) <= buffer.Length);
+                    DebugHelper.Assert((skipCount + writeLengthInBytes) <= buffer.Length);
                     sysbus.WriteBytes(buffer.Skip(skipCount).ToArray(), destinationAddress, context: context);
                 }
             }
