@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 using Antmicro.Renode.Core;
+using Antmicro.Renode.Core.Structure;
 using Antmicro.Renode.Peripherals.Analog;
+using Antmicro.Renode.Peripherals.Bus;
 using NUnit.Framework;
 
 namespace Antmicro.Renode.PeripheralsTests
@@ -16,6 +18,7 @@ namespace Antmicro.Renode.PeripheralsTests
             machine = new Machine();
             EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
             adc = new STM32_ADC(machine);
+            machine.SystemBus.Register(adc, new BusPointRegistration(AdcAddress));
             ladder = new PrimeButtonLadder(adc);
         }
 
@@ -54,6 +57,19 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.Throws<System.ArgumentOutOfRangeException>(() => ladder.OnGPIO(4, true));
         }
 
+        [Test]
+        public void ShouldPreserveReleasedBoardSourcesAcrossResetAndReplaceQueuedFixtures()
+        {
+            adc.FeedSample(123, 14, repeat: 2);
+            ladder.OnGPIO(0, true);
+            Assert.AreEqual(ladder.Ladder0Value, ReadChannel(14));
+
+            ladder.Reset();
+            machine.Reset();
+            Assert.AreEqual(0xFFF, ReadChannel(14));
+            Assert.AreEqual(0xFFF, ReadChannel(1));
+        }
+
         private uint ReadChannel(uint channel)
         {
             adc.WriteDoubleWord(0x08, 0);                // CR2 power down
@@ -69,5 +85,7 @@ namespace Antmicro.Renode.PeripheralsTests
         private Machine machine;
         private STM32_ADC adc;
         private PrimeButtonLadder ladder;
+
+        private const ulong AdcAddress = 0x40012000;
     }
 }

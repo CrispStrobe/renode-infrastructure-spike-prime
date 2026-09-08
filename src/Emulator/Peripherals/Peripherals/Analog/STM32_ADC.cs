@@ -5,6 +5,7 @@
 // Full license text is available in 'licenses/MIT.txt'.
 //
 
+using System.Collections.Generic;
 using System.Linq;
 
 using Antmicro.Renode.Core;
@@ -63,6 +64,10 @@ namespace Antmicro.Renode.Peripherals.Analog
             {
                 c.Reset();
             }
+            foreach(var channel in persistentChannelValues)
+            {
+                channels[channel.Key].SetPersistentSample(channel.Value);
+            }
         }
 
         public void FeedSample(uint value, uint channelIdx, int repeat = 1)
@@ -84,7 +89,8 @@ namespace Antmicro.Renode.Peripherals.Analog
             }
             if(IsValidChannel(channelIdx))
             {
-                channels[channelIdx].FeedSample(value, -1);
+                persistentChannelValues[channelIdx] = value;
+                channels[channelIdx].SetPersistentSample(value);
             }
         }
 
@@ -326,6 +332,7 @@ namespace Antmicro.Renode.Peripherals.Analog
         private readonly LimitTimer samplingTimer;
         private readonly IValueRegisterField[] regularSequence = new IValueRegisterField[19];
         private readonly ADCChannel[] channels;
+        private readonly Dictionary<uint, uint> persistentChannelValues = new Dictionary<uint, uint>();
 
         private enum Registers
         {
