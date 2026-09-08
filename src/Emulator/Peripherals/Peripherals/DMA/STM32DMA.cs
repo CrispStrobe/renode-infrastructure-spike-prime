@@ -159,6 +159,7 @@ namespace Antmicro.Renode.Peripherals.DMA
             {
                 dataOffset = 0;
                 initialNrOfData = 0;
+                pendingPeripheralRequest = false;
                 IRQ.Unset();
             }
 
@@ -171,7 +172,18 @@ namespace Antmicro.Renode.Peripherals.DMA
 
                 if(!isEnabled.Value)
                 {
-                    parent.WarningLog("Attempting to perform a transfer on disabled DMA stream {0}. Ignoring request", id);
+                    // A peripheral can assert its request before software has
+                    // finished programming the direction and enabling the stream.
+                    pendingPeripheralRequest = true;
+                    parent.NoisyLog("Deferring a request for disabled DMA stream {0}", id);
+                    return;
+                }
+
+                // A peripheral can synchronously retrigger its request while
+                // completion is still clearing EN. Preserve it for the next setup.
+                if(direction.Value == Direction.MemoryToPeripheral && nrOfData.Value == 0)
+                {
+                    pendingPeripheralRequest = true;
                     return;
                 }
 
@@ -241,6 +253,15 @@ namespace Antmicro.Renode.Peripherals.DMA
                 if(value && direction.Value == Direction.MemoryToMemory)
                 {
                     PerformTransfer();
+                }
+                else if(value && pendingPeripheralRequest)
+                {
+                    pendingPeripheralRequest = false;
+                    PerformTransfer();
+                }
+                else if(value)
+                {
+                    pendingPeripheralRequest = false;
                 }
             }
 
@@ -397,6 +418,7 @@ namespace Antmicro.Renode.Peripherals.DMA
 
             private ulong dataOffset;
             private ulong initialNrOfData;
+            private bool pendingPeripheralRequest;
 
             private readonly STM32DMA parent;
             private readonly int id;

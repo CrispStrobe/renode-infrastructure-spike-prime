@@ -212,7 +212,7 @@ namespace Antmicro.Renode.Peripherals.SPI
                     }
                 }, name: "MSTR")
                 .WithValueField(3, 3, name: "Baud") // Physical
-                .WithFlag(6, changeCallback: (oldValue, newValue) =>
+                .WithFlag(6, out spiEnable, changeCallback: (oldValue, newValue) =>
                 {
                     if(!newValue)
                     {
@@ -242,7 +242,7 @@ namespace Antmicro.Renode.Peripherals.SPI
                 .WithFlag(0, out rxDmaEnable, name: "RXDMAEN")
                 .WithFlag(1, out txDmaEnable, writeCallback: (_, value) =>
                 {
-                    DMASend.Set(value);
+                    DMASend.Set(value && spiEnable.Value);
                 }, name: "TXDMAEN")
                 .WithTaggedFlag("SSOE", 2)
                 .If(series == STM32Series.L5)
@@ -337,6 +337,7 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         private IFlagRegisterField txBufferEmptyInterruptEnable, rxBufferNotEmptyInterruptEnable, rxDmaEnable;
         private IFlagRegisterField txDmaEnable;
+        private IFlagRegisterField spiEnable;
         private IFlagRegisterField masterMode;
         private IFlagRegisterField overrun;
         private IFlagRegisterField errorInterruptEnable;
