@@ -73,6 +73,21 @@ namespace Antmicro.Renode.Peripherals.Analog
             }
         }
 
+        // Set a stable board-level voltage source. Unlike a finite fixture fed
+        // with FeedSample, this value remains available for every conversion
+        // until the board model changes it.
+        public void SetChannelValue(uint channelIdx, uint value)
+        {
+            if(value > 0xFFF)
+            {
+                throw new RecoverableException("STM32 ADC channel values must fit in 12 bits");
+            }
+            if(IsValidChannel(channelIdx))
+            {
+                channels[channelIdx].FeedSample(value, -1);
+            }
+        }
+
         public void FeedSample(string path, uint channelIdx, int repeat = 1)
         {
             if(IsValidChannel(channelIdx))

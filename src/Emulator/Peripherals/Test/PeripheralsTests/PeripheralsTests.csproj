@@ -61,6 +61,8 @@
     <Compile Include="STM32_UARTTests.cs" />
     <Compile Include="STM32F7I2CTests.cs" />
     <Compile Include="TLC5955Tests.cs" />
+    <Compile Include="PrimeButtonLadderTests.cs" />
+    <Compile Include="STM32TimerBoardClockTests.cs" />
     <Compile Include="LegoLpf2PortTests.cs" />
     <Compile Include="EFR32_I2CControllerTests.cs" />
     <Compile Include="FT5336Test.cs" />

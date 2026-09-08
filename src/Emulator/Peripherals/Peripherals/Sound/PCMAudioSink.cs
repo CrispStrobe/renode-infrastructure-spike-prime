@@ -94,6 +94,10 @@ namespace Antmicro.Renode.Peripherals.Sound
             {
                 Enabled = value;
             }
+            else if(number == SampleClockGPIO && value)
+            {
+                AdvanceSampleClock();
+            }
         }
 
         public void Reset()
@@ -127,6 +131,7 @@ namespace Antmicro.Renode.Peripherals.Sound
         public long Size => 2;
 
         public const int EnableGPIO = 0;
+        public const int SampleClockGPIO = 1;
 
         private void ValidateOffset(long offset)
         {

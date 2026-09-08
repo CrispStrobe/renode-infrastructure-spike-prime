@@ -48,6 +48,8 @@ namespace Antmicro.Renode.Peripherals.Timers
                     return;
                 }
 
+                EmitUpdateEvent();
+
                 if(Mode == WorkMode.OneShot)
                 {
                     enableRequested = false;
@@ -148,7 +150,7 @@ namespace Antmicro.Renode.Peripherals.Timers
                     .WithReservedBits(1, 1)
                     .WithTaggedFlag("CCUS", 2)
                     .WithTaggedFlag("CCDS", 3)
-                    .WithTag("MMS", 4, 2)
+                    .WithValueField(4, 3, out masterModeSelection, name: "MMS")
                     .WithTaggedFlag("TI1S", 7)
                     .WithTaggedFlag("OIS1", 8)
                     .WithTaggedFlag("OIS1N", 9)
@@ -179,7 +181,7 @@ namespace Antmicro.Renode.Peripherals.Timers
                     .WithReservedBits(5, 1)
                     .WithTag("Trigger interrupt enable (TIE)", 6, 1)
                     .WithReservedBits(7, 1)
-                    .WithTag("Update DMA request enable (UDE)", 8, 1)
+                    .WithFlag(8, out updateDmaRequestEnable, name: "Update DMA request enable (UDE)")
                     .WithTag("Capture/Compare 1 DMA request enable (CC1DE)", 9, 1)
                     .WithTag("Capture/Compare 2 DMA request enable (CC2DE)", 10, 1)
                     .WithTag("Capture/Compare 3 DMA request enable (CC3DE)", 11, 1)
@@ -238,6 +240,8 @@ namespace Antmicro.Renode.Peripherals.Timers
                         }
 
                         repetitionsLeft = (uint)repetitionCounter.Value;
+
+                        EmitUpdateEvent();
 
                         if(!updateRequestSource.Value && updateInterruptEnable.Value)
                         {
@@ -473,6 +477,12 @@ namespace Antmicro.Renode.Peripherals.Timers
 
         public GPIO CaptureCompareInterrupt { get; } = new GPIO();
 
+        // Timer update event routed as TRGO when MMS=010 and as a DMA request
+        // when UDE is set. These are pulses on separate hardware nets.
+        public GPIO TriggerOutput { get; } = new GPIO();
+
+        public GPIO UpdateDMARequest { get; } = new GPIO();
+
         public IReadOnlyDictionary<int, IGPIO> Connections => connections;
 
         public long Size => 0x400;
@@ -569,6 +579,18 @@ namespace Antmicro.Renode.Peripherals.Timers
             CaptureCompareInterrupt.Set(ccIrq);
         }
 
+        private void EmitUpdateEvent()
+        {
+            if(masterModeSelection.Value == 2)
+            {
+                TriggerOutput.Blink();
+            }
+            if(updateDmaRequestEnable.Value)
+            {
+                UpdateDMARequest.Blink();
+            }
+        }
+
         private uint autoReloadValue;
         private uint repetitionsLeft;
         private bool updateInterruptFlag;
@@ -582,6 +604,8 @@ namespace Antmicro.Renode.Peripherals.Timers
         private readonly IFlagRegisterField updateDisable;
         private readonly IFlagRegisterField updateRequestSource;
         private readonly IFlagRegisterField updateInterruptEnable;
+        private readonly IFlagRegisterField updateDmaRequestEnable;
+        private readonly IValueRegisterField masterModeSelection;
         private readonly IFlagRegisterField autoReloadPreloadEnable;
         private readonly IEnumRegisterField<CenterAlignedMode> centerAlignedMode;
         private readonly IValueRegisterField repetitionCounter;
