@@ -11,19 +11,22 @@ using NUnit.Framework;
 namespace Antmicro.Renode.PeripheralsTests
 {
     [TestFixture]
+    [NonParallelizable]
     public class STM32TimerBoardClockTests
     {
         [SetUp]
         public void SetUp()
         {
+            EmulationManager.Instance.Clear();
             machine = new Machine();
+            EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
             timer = new STM32_Timer(machine, 1000, 0xFFFF);
         }
 
         [TearDown]
         public void TearDown()
         {
-            machine.Dispose();
+            EmulationManager.Instance.Clear();
         }
 
         [Test]

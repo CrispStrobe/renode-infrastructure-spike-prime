@@ -10,11 +10,13 @@ using NUnit.Framework;
 namespace Antmicro.Renode.PeripheralsTests
 {
     [TestFixture]
+    [NonParallelizable]
     public class PrimeButtonLadderTests
     {
         [SetUp]
         public void SetUp()
         {
+            EmulationManager.Instance.Clear();
             machine = new Machine();
             EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
             adc = new STM32_ADC(machine);
@@ -25,8 +27,7 @@ namespace Antmicro.Renode.PeripheralsTests
         [TearDown]
         public void TearDown()
         {
-            EmulationManager.Instance.CurrentEmulation.RemoveMachine(machine);
-            machine.Dispose();
+            EmulationManager.Instance.Clear();
         }
 
         [Test]
