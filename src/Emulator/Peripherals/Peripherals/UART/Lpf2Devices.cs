@@ -318,6 +318,9 @@ namespace Antmicro.Renode.Peripherals.UART
 
         private const int MaximumDegreesPerSecond = 1050;
         private const int StallThresholdPercent = 90;
+        // Copied from Pybricks test_uartdev.c at commit 101c6babb592148bda9a8fd912b7953c7d561c0a.
+        // SPDX-License-Identifier: MIT
+        // Copyright (c) 2019-2023 The Pybricks Authors
         private static readonly byte[] discoveryBytes =
         {
             0x40, 0x2e, 0x91, 0x49, 0x05, 0x03, 0xb0, 0x52, 0x00, 0xc2, 0x01, 0x00, 0x6e, 0x5f, 0x04, 0x00,
