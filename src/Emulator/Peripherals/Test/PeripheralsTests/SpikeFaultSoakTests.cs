@@ -102,7 +102,7 @@ namespace Antmicro.Renode.PeripheralsTests
         }
 
         [Test]
-        public void ShouldKeepRejectedFlashWritesUnchangedAcrossResetCycles()
+        public void ShouldConsumeInjectedFlashFailuresAndRecoverAcrossResetCycles()
         {
             using(var machine = new Machine())
             using(var memory = new MappedMemory(machine, FlashSize))
@@ -110,9 +110,12 @@ namespace Antmicro.Renode.PeripheralsTests
                 var flash = new GenericSpiFlash(memory, 0xEF, 0x40, 0x19,
                     writeStatusCanSetWriteEnable: false, sectorSizeKB: 64,
                     secondaryStatusRegisterReadCommand: 0x35);
+                flash.FailNextProgramOperations = CycleCount;
                 for(var cycle = 0; cycle < CycleCount; ++cycle)
                 {
                     memory.WriteByte(TestAddress, 0xA5);
+                    flash.Transmit(0x06);
+                    flash.FinishTransmission();
                     flash.Transmit(0x12);
                     foreach(var value in AddressBytes(TestAddress))
                     {
@@ -121,8 +124,21 @@ namespace Antmicro.Renode.PeripheralsTests
                     flash.Transmit(0x00);
                     flash.FinishTransmission();
                     Assert.AreEqual(0xA5, memory.ReadByte(TestAddress));
+                    Assert.AreEqual((ulong)cycle + 1, flash.InjectedProgramFailures);
                     flash.Reset();
                 }
+                Assert.AreEqual(0, flash.FailNextProgramOperations);
+
+                flash.Transmit(0x06);
+                flash.FinishTransmission();
+                flash.Transmit(0x12);
+                foreach(var value in AddressBytes(TestAddress))
+                {
+                    flash.Transmit(value);
+                }
+                flash.Transmit(0x00);
+                flash.FinishTransmission();
+                Assert.AreEqual(0x00, memory.ReadByte(TestAddress));
             }
         }
 

@@ -105,6 +105,47 @@ namespace Antmicro.Renode.PeripheralsTests
             AssertCommand(0x05, new byte[] { 0x00 });
         }
 
+        [Test]
+        public void ShouldInjectAndRecoverFromWholeProgramOperationFailure()
+        {
+            memory.WriteBytes(TestAddress, new byte[] { 0xFF, 0xFF });
+            flash.FailNextProgramOperations = 1;
+
+            Execute(0x06);
+            Execute(0x12, AddressBytes(TestAddress), new byte[] { 0xA5, 0x5A });
+
+            CollectionAssert.AreEqual(new byte[] { 0xFF, 0xFF }, memory.ReadBytes(TestAddress, 2));
+            Assert.AreEqual(0, flash.FailNextProgramOperations);
+            Assert.AreEqual(1, flash.InjectedProgramFailures);
+            AssertCommand(0x05, new byte[] { 0x00 });
+
+            Execute(0x06);
+            Execute(0x12, AddressBytes(TestAddress), new byte[] { 0xA5, 0x5A });
+            CollectionAssert.AreEqual(new byte[] { 0xA5, 0x5A }, memory.ReadBytes(TestAddress, 2));
+            Assert.AreEqual(1, flash.InjectedProgramFailures);
+        }
+
+        [Test]
+        public void ShouldInjectAndRecoverFromSegmentAndChipEraseFailures()
+        {
+            memory.WriteByte(TestAddress, 0x00);
+            flash.FailNextEraseOperations = 2;
+
+            Execute(0x06);
+            Execute(0x21, AddressBytes(TestAddress));
+            Assert.AreEqual(0x00, memory.ReadByte(TestAddress));
+            Execute(0x06);
+            Execute(0xC7);
+            Assert.AreEqual(0x00, memory.ReadByte(TestAddress));
+            Assert.AreEqual(0, flash.FailNextEraseOperations);
+            Assert.AreEqual(2, flash.InjectedEraseFailures);
+
+            Execute(0x06);
+            Execute(0x21, AddressBytes(TestAddress));
+            Assert.AreEqual(0xFF, memory.ReadByte(TestAddress));
+            Assert.AreEqual(2, flash.InjectedEraseFailures);
+        }
+
         private void AssertCommand(byte command, byte[] expected)
         {
             Begin(command);

@@ -105,6 +105,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             }
             currentOperation.State = DecodedOperation.OperationState.RecognizeOperation;
             currentOperation = default(DecodedOperation);
+            programFailureActive = false;
             temporaryConfiguration = 0;
         }
 
@@ -153,6 +154,16 @@ namespace Antmicro.Renode.Peripherals.SPI
         public MappedMemory UnderlyingMemory => underlyingMemory;
 
         public byte[] SFDPSignature { get; set; }
+
+        // Operation-level fault injection used by deterministic firmware recovery
+        // tests. A failed operation consumes WEL but leaves backing memory intact.
+        public uint FailNextProgramOperations { get; set; }
+
+        public uint FailNextEraseOperations { get; set; }
+
+        public ulong InjectedProgramFailures { get; private set; }
+
+        public ulong InjectedEraseFailures { get; private set; }
 
         protected virtual byte ReadFromMemory()
         {
@@ -340,8 +351,11 @@ namespace Antmicro.Renode.Peripherals.SPI
             case (byte)Commands.ChipErase:
                 if(enable.Value)
                 {
-                    this.Log(LogLevel.Noisy, "Performing bulk/chip erase");
-                    EraseChip();
+                    if(!TryInjectEraseFailure())
+                    {
+                        this.Log(LogLevel.Noisy, "Performing bulk/chip erase");
+                        EraseChip();
+                    }
                     enable.Value = false;
                 }
                 else
@@ -586,7 +600,17 @@ namespace Antmicro.Renode.Peripherals.SPI
             case DecodedOperation.OperationType.Program:
                 if(enable.Value)
                 {
-                    WriteToMemory(data);
+                    if(currentOperation.CommandBytesHandled == 0 && FailNextProgramOperations > 0)
+                    {
+                        FailNextProgramOperations--;
+                        InjectedProgramFailures++;
+                        programFailureActive = true;
+                        this.Log(LogLevel.Warning, "Injecting a program-operation failure at address 0x{0:X}.", currentOperation.ExecutionAddress);
+                    }
+                    if(!programFailureActive)
+                    {
+                        WriteToMemory(data);
+                    }
                     result = data;
                 }
                 else
@@ -631,6 +655,10 @@ namespace Antmicro.Renode.Peripherals.SPI
             case DecodedOperation.OperationType.Erase:
                 if(enable.Value)
                 {
+                    if(TryInjectEraseFailure())
+                    {
+                        break;
+                    }
                     if(currentOperation.ExecutionAddress >= underlyingMemory.Size)
                     {
                         this.Log(LogLevel.Error, "Cannot erase memory because current address 0x{0:X} exceeds configured memory size.", currentOperation.ExecutionAddress);
@@ -677,6 +705,18 @@ namespace Antmicro.Renode.Peripherals.SPI
             underlyingMemory.ZeroAll();
         }
 
+        private bool TryInjectEraseFailure()
+        {
+            if(FailNextEraseOperations == 0)
+            {
+                return false;
+            }
+            FailNextEraseOperations--;
+            InjectedEraseFailures++;
+            this.Log(LogLevel.Warning, "Injecting an erase-operation failure at address 0x{0:X}.", currentOperation.ExecutionAddress);
+            return true;
+        }
+
         private void EraseDie()
         {
             // Die erase is a separate operation because on multi-die chips it
@@ -713,6 +753,7 @@ namespace Antmicro.Renode.Peripherals.SPI
         private int NumberOfAddressBytes => addressingMode.Value == AddressingMode.ThreeByte ? 3 : 4;
 
         private uint temporaryConfiguration; //this should be an ushort, but due to C# type promotions it's easier to use uint
+        private bool programFailureActive;
 
         private readonly byte[] deviceData;
         private readonly IFlagRegisterField enable;
