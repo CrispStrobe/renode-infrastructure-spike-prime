@@ -816,6 +816,9 @@
     <Compile Include="Emulator/Peripherals/Peripherals/Timers/SunxiTimer.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Timers/TexasInstrumentsTimer.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Timers/TI_DA8xx_Timer64.cs" />
+    <Compile Include="Emulator/Peripherals/Peripherals/Miscellaneous/TI_DA8xx_PSC.cs" />
+    <Compile Include="Emulator/Peripherals/Peripherals/Miscellaneous/TI_DA8xx_PLLC.cs" />
+    <Compile Include="Emulator/Peripherals/Peripherals/Miscellaneous/TI_DA8xx_SYSCFG0.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/IRQControllers/AINTC.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/IRQControllers/TI_DA8xx_AINTC.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/I2C/STM32F4_I2C.cs" />
