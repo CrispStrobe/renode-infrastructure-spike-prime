@@ -25,7 +25,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             bool writeStatusCanSetWriteEnable = true, byte extendedDeviceId = DefaultExtendedDeviceID,
             byte deviceConfiguration = DefaultDeviceConfiguration, byte remainingIdBytes = DefaultRemainingIDBytes,
             // "Sector" here is the largest erasable memory unit. It's also named "block" by many flash memory vendors.
-            int sectorSizeKB = DefaultSectorSizeKB)
+            int sectorSizeKB = DefaultSectorSizeKB, byte? secondaryStatusRegisterReadCommand = null)
         {
             if(!Misc.IsPowerOfTwo((ulong)underlyingMemory.Size))
             {
@@ -64,6 +64,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             this.remainingIdBytes = remainingIdBytes;
             this.extendedDeviceId = extendedDeviceId;
             this.deviceConfiguration = deviceConfiguration;
+            this.secondaryStatusRegisterReadCommand = secondaryStatusRegisterReadCommand;
 
             deviceData = GetDeviceData();
 
@@ -104,6 +105,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             }
             currentOperation.State = DecodedOperation.OperationState.RecognizeOperation;
             currentOperation = default(DecodedOperation);
+            programFailureActive = false;
             temporaryConfiguration = 0;
         }
 
@@ -153,6 +155,16 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         public byte[] SFDPSignature { get; set; }
 
+        // Operation-level fault injection used by deterministic firmware recovery
+        // tests. A failed operation consumes WEL but leaves backing memory intact.
+        public uint FailNextProgramOperations { get; set; }
+
+        public uint FailNextEraseOperations { get; set; }
+
+        public ulong InjectedProgramFailures { get; private set; }
+
+        public ulong InjectedEraseFailures { get; private set; }
+
         protected virtual byte ReadFromMemory()
         {
             var memoryAddress = (long)currentOperation.ExecutionAddress + currentOperation.CommandBytesHandled;
@@ -172,7 +184,9 @@ namespace Antmicro.Renode.Peripherals.SPI
             {
                 return;
             }
-            underlyingMemory.WriteByte(position, val);
+            // Programming NOR flash can only clear bits. An erase operation is
+            // required before a cleared bit can become set again.
+            underlyingMemory.WriteByte(position, (byte)(underlyingMemory.ReadByte(position) & val));
         }
 
         protected bool TryVerifyWriteToMemory(out long position)
@@ -222,6 +236,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             switch(command)
             {
             case Commands.FastRead:
+            case Commands.FastRead4byte:
             case Commands.ReadSerialFlashDiscoveryParameter:
                 return 1;
             default:
@@ -234,6 +249,12 @@ namespace Antmicro.Renode.Peripherals.SPI
             currentOperation.Operation = DecodedOperation.OperationType.None;
             currentOperation.State = DecodedOperation.OperationState.HandleCommand;
             currentOperation.DummyBytesRemaining = GetDummyBytes((Commands)firstByte);
+            if(secondaryStatusRegisterReadCommand.HasValue && firstByte == secondaryStatusRegisterReadCommand.Value)
+            {
+                currentOperation.Operation = DecodedOperation.OperationType.ReadRegister;
+                currentOperation.Register = (uint)Register.SecondaryStatus;
+                return;
+            }
             switch(firstByte)
             {
             case (byte)Commands.ReadID:
@@ -328,8 +349,19 @@ namespace Antmicro.Renode.Peripherals.SPI
                 break;
             case (byte)Commands.BulkErase:
             case (byte)Commands.ChipErase:
-                this.Log(LogLevel.Noisy, "Performing bulk/chip erase");
-                EraseChip();
+                if(enable.Value)
+                {
+                    if(!TryInjectEraseFailure())
+                    {
+                        this.Log(LogLevel.Noisy, "Performing bulk/chip erase");
+                        EraseChip();
+                    }
+                    enable.Value = false;
+                }
+                else
+                {
+                    this.Log(LogLevel.Error, "Chip erase operation is disabled.");
+                }
                 break;
             case (byte)Commands.SubsectorErase4byte4kb:
                 currentOperation.Operation = DecodedOperation.OperationType.Erase;
@@ -469,6 +501,10 @@ namespace Antmicro.Renode.Peripherals.SPI
                 // The documentation states that at least 1 byte will be read
                 // If more than 1 byte is read, the same byte is returned
                 return statusRegister.Read();
+            case Register.SecondaryStatus:
+                // Meanings differ between device families. A configured
+                // second status-register opcode defaults to no asserted flags.
+                return 0;
             case Register.FlagStatus:
                 // The documentation states that at least 1 byte will be read
                 // If more than 1 byte is read, the same byte is returned
@@ -564,7 +600,17 @@ namespace Antmicro.Renode.Peripherals.SPI
             case DecodedOperation.OperationType.Program:
                 if(enable.Value)
                 {
-                    WriteToMemory(data);
+                    if(currentOperation.CommandBytesHandled == 0 && FailNextProgramOperations > 0)
+                    {
+                        FailNextProgramOperations--;
+                        InjectedProgramFailures++;
+                        programFailureActive = true;
+                        this.Log(LogLevel.Warning, "Injecting a program-operation failure at address 0x{0:X}.", currentOperation.ExecutionAddress);
+                    }
+                    if(!programFailureActive)
+                    {
+                        WriteToMemory(data);
+                    }
                     result = data;
                 }
                 else
@@ -609,6 +655,10 @@ namespace Antmicro.Renode.Peripherals.SPI
             case DecodedOperation.OperationType.Erase:
                 if(enable.Value)
                 {
+                    if(TryInjectEraseFailure())
+                    {
+                        break;
+                    }
                     if(currentOperation.ExecutionAddress >= underlyingMemory.Size)
                     {
                         this.Log(LogLevel.Error, "Cannot erase memory because current address 0x{0:X} exceeds configured memory size.", currentOperation.ExecutionAddress);
@@ -655,6 +705,18 @@ namespace Antmicro.Renode.Peripherals.SPI
             underlyingMemory.ZeroAll();
         }
 
+        private bool TryInjectEraseFailure()
+        {
+            if(FailNextEraseOperations == 0)
+            {
+                return false;
+            }
+            FailNextEraseOperations--;
+            InjectedEraseFailures++;
+            this.Log(LogLevel.Warning, "Injecting an erase-operation failure at address 0x{0:X}.", currentOperation.ExecutionAddress);
+            return true;
+        }
+
         private void EraseDie()
         {
             // Die erase is a separate operation because on multi-die chips it
@@ -691,6 +753,7 @@ namespace Antmicro.Renode.Peripherals.SPI
         private int NumberOfAddressBytes => addressingMode.Value == AddressingMode.ThreeByte ? 3 : 4;
 
         private uint temporaryConfiguration; //this should be an ushort, but due to C# type promotions it's easier to use uint
+        private bool programFailureActive;
 
         private readonly byte[] deviceData;
         private readonly IFlagRegisterField enable;
@@ -706,6 +769,7 @@ namespace Antmicro.Renode.Peripherals.SPI
         private readonly byte remainingIdBytes;
         private readonly byte extendedDeviceId;
         private readonly byte deviceConfiguration;
+        private readonly byte? secondaryStatusRegisterReadCommand;
         private const byte EmptySegment = 0xff;
         private const byte DeviceGeneration = 0x1;      // 2nd generation
         private const byte DefaultRemainingIDBytes = 0x10;
@@ -850,6 +914,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             NonVolatileConfiguration,
             VolatileConfiguration,
             EnhancedVolatileConfiguration,
+            SecondaryStatus,
             FirstNonstandardRegister,
         }
 

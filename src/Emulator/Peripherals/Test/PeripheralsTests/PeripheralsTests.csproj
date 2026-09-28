@@ -50,6 +50,8 @@
     <Compile Include="BMC050Test.cs" />
     <Compile Include="STMCANTest.cs" />
     <Compile Include="LPC43xx_GPIO_Test.cs" />
+    <Compile Include="LSM6DS3TRCTests.cs" />
+    <Compile Include="LP50XXTests.cs" />
     <Compile Include="OpenTitan_AES_Test.cs" />
     <Compile Include="OpenTitan_KeyManagerTest.cs" />
     <Compile Include="OpenTitan_I2C_Test.cs" />
@@ -57,8 +59,14 @@
     <Compile Include="Cadence_TTCTests.cs" />
     <Compile Include="Cadence_UARTTests.cs" />
     <Compile Include="STM32_UARTTests.cs" />
+    <Compile Include="STM32F7I2CTests.cs" />
+    <Compile Include="TLC5955Tests.cs" />
+    <Compile Include="PrimeButtonLadderTests.cs" />
+    <Compile Include="STM32TimerBoardClockTests.cs" />
+    <Compile Include="LegoLpf2PortTests.cs" />
     <Compile Include="EFR32_I2CControllerTests.cs" />
     <Compile Include="FT5336Test.cs" />
+    <Compile Include="GenericSpiFlashW25Q256Tests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <ItemGroup>

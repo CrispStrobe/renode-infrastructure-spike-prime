@@ -78,6 +78,27 @@ namespace Antmicro.Renode.UnitTests
             Assert.That(dataToTransfer.SequenceEqual(dataTransferred));
         }
 
+        [Test]
+        public void ShouldWriteOnlyLastUnitWhenDestinationDoesNotIncrement()
+        {
+            FillMemoryWithRepeatingData(PlaceType.SourceRawArray, InitialPattern);
+            const int size = 16;
+            const int destinationOffset = 32;
+            var request = new Request(
+                source: GetPlaceInMemory(PlaceType.SourceRawArray, 0),
+                destination: GetPlaceInMemory(PlaceType.DestinationMappedMemory, destinationOffset),
+                size: size,
+                readTransferType: TransferType.DoubleWord,
+                writeTransferType: TransferType.DoubleWord,
+                incrementWriteAddress: false
+            );
+
+            dmaEngine.IssueCopy(request);
+
+            CollectionAssert.AreEqual(InitialPattern.Skip(size - 4),
+                ReadBytesFromMemory(PlaceType.DestinationMappedMemory, destinationOffset, 4));
+        }
+
         private IMultibyteWritePeripheral GetMemory(PlaceType placeType)
         {
             switch(placeType)

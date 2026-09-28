@@ -970,6 +970,7 @@
     <Compile Include="Emulator/Peripherals/Peripherals/Analog/STM32WBA_ADC.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Analog/Xilinx_XADC.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Analog/STM32_ADC.cs" />
+    <Compile Include="Emulator/Peripherals/Peripherals/Analog/PrimeButtonLadder.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Analog/RenesasDA14_GPADC.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/DMA/EOSS3_SPI_DMA.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Miscellaneous/EOSS3_PacketFIFO.cs" />

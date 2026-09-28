@@ -104,6 +104,17 @@ namespace Antmicro.Renode.Peripherals.Analog
             }
         }
 
+        // Replace finite fixture data with a board-level source that remains
+        // available for every subsequent conversion.
+        public void SetPersistentSample(uint sample)
+        {
+            lock(lockObject)
+            {
+                samples.Clear();
+                bufferedSamples = new uint[] { sample };
+            }
+        }
+
         public void FeedSample(IEnumerable<uint> samplesCollection, int repeat = 1)
         {
             lock(lockObject)
