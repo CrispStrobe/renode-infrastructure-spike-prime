@@ -560,7 +560,15 @@ namespace Antmicro.Renode.Peripherals.SD
                 .Append(OperatingConditions.AsByteArray());
         }
 
-        private BitStream GenerateR7Response(byte checkPattern)
+        private BitStream GenerateNativeR7Response(byte checkPattern)
+        {
+            return new VariableLengthValue(32)
+                .DefineFragment(0, 8, checkPattern, name: "check pattern")
+                .DefineFragment(8, 24, OperatingVoltage.AsUInt32(), name: "interface condition")
+                .Bits;
+        }
+
+        private BitStream GenerateSpiR7Response(byte checkPattern)
         {
             return GenerateR1Response()
                 .Append(OperatingVoltage.AsByteArray().Reverse().ToArray())
@@ -671,8 +679,8 @@ namespace Antmicro.Renode.Peripherals.SD
 
             case SdCardCommand.SendInterfaceConditionCommand_CMD8:
                 return spiMode
-                    ? GenerateR7Response((byte)arg)
-                    : CardStatus;
+                    ? GenerateSpiR7Response((byte)arg)
+                    : GenerateNativeR7Response((byte)arg);
 
             case SdCardCommand.SendCardSpecificData_CMD9:
                 return spiMode
