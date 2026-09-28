@@ -811,6 +811,7 @@
     <Compile Include="Emulator/Peripherals/Peripherals/Timers/SunxiHighSpeedTimer.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/SD/MMCController.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/SD/SDCard.cs" />
+    <Compile Include="Emulator/Peripherals/Peripherals/SD/TI_DA8xx_MMCSD.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/SD/DeprecatedSDCard.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/SD/SDCardExtensions.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Timers/SunxiTimer.cs" />
