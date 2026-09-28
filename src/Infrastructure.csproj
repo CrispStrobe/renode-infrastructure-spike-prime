@@ -1018,6 +1018,7 @@
     <Compile Include="Emulator/Peripherals/Peripherals/Miscellaneous/INRFEventProvider.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Timers/NRF52840_RTC.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/GPIOPort/LPC43xx_GPIO.cs" />
+    <Compile Include="Emulator/Peripherals/Peripherals/GPIOPort/TI_DA8xx_GPIO.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Miscellaneous/SevenSegmentsDisplay.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/GPIOPort/NRF52840_GPIO.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/GPIOPort/NRF52840_GPIOTasksEvents.cs" />
