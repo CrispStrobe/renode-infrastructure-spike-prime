@@ -45,6 +45,8 @@
   <ItemGroup>
     <Compile Include="CortexA9GICTests.cs" />
     <Compile Include="TI_DA8xx_AINTCTests.cs" />
+    <Compile Include="TI_DA8xx_EDMA3CCTests.cs" />
+    <Compile Include="TI_DA8xx_EDMA3TCTests.cs" />
     <Compile Include="TI_DA8xx_PSCTests.cs" />
     <Compile Include="TI_DA8xx_PLLCTests.cs" />
     <Compile Include="TI_DA8xx_SYSCFG0Tests.cs" />
