@@ -44,6 +44,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CortexA9GICTests.cs" />
+    <Compile Include="TI_DA8xx_AINTCTests.cs" />
     <Compile Include="EFM32GGI2CControllerTest.cs" />
     <Compile Include="BMA180Test.cs" />
     <Compile Include="SHT21Test.cs" />
