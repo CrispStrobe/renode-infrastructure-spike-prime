@@ -163,8 +163,9 @@ namespace Antmicro.Renode.Peripherals.Timers
                 {
                     flags |= 0x40;
                     if(period == uint.MaxValue) flags |= 0x20;
+                    var oldPeriod = period;
                     period = shadowPeriod; compare = shadowCompare;
-                    boundaryPending = period != 0;
+                    boundaryPending = oldPeriod != 0;
                 }
             }
             Validate(); if(!Operational) Output.Unset(); UpdateInterrupts(); Schedule();
