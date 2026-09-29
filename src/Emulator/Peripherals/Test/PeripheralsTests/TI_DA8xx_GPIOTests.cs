@@ -31,7 +31,7 @@ namespace Antmicro.Renode.PeripheralsTests
         public void ShouldExposeNonDestructiveByteAndWordReadsThroughSystemBus()
         {
             const ulong address = 0x01E26000;
-            machine.SystemBus.Register(gpio, new BusRangeRegistration(address, gpio.Size));
+            machine.SystemBus.Register(gpio, new BusRangeRegistration(address, (ulong)gpio.Size));
             gpio.OnGPIO(43, true);
             gpio.OnGPIO(44, true);
             gpio.OnGPIO(55, true);
@@ -52,7 +52,7 @@ namespace Antmicro.Renode.PeripheralsTests
         public void ShouldKeepNarrowWritesWithinTheirLaneForAliasesAndW1C()
         {
             const ulong address = 0x01E26000;
-            machine.SystemBus.Register(gpio, new BusRangeRegistration(address, gpio.Size));
+            machine.SystemBus.Register(gpio, new BusRangeRegistration(address, (ulong)gpio.Size));
             gpio.WriteDoubleWord(0x38, 0);
             gpio.WriteDoubleWord(0x3C, 0x00800800);
             machine.SystemBus.WriteByte(address + 0x45, 0x08); // CLR_DATA lane 1: GPIO43 only.
