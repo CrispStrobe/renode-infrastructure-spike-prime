@@ -322,7 +322,7 @@ namespace Antmicro.Renode.Peripherals.Timers
         private uint CurrentPhase => timer.Enabled ? (phase + (uint)timer.Value) % CycleLength : phase;
         private bool IsDown(uint value) => Mode == 1 || (Mode == 2 && value >= period);
         private uint CounterAt(uint value) => Mode == 1 ? period - Math.Min(period, value) : Mode == 2 && value >= period ? 2 * period - Math.Min(2 * period, value) : value;
-        private uint PhaseForCounter(uint value) => Mode == 1 ? period - Math.Min(period, value) : Math.Min(period, value);
+        private uint PhaseForCounter(uint value) => Mode == 3 ? value : Mode == 1 ? period - Math.Min(period, value) : Math.Min(period, value);
 
         private readonly LimitTimer timer;
         private readonly ulong frequency;

@@ -58,7 +58,7 @@ namespace Antmicro.Renode.Peripherals.Timers
             }
             Validate();
             if(!wasRunning && CounterRunning && counter == 0) Drive();
-            if(!Operational) Output.Unset();
+            if(!Operational || (control2 & 0x200) == 0) Output.Unset();
             UpdateInterrupts(); Schedule();
         }
 
@@ -70,7 +70,7 @@ namespace Antmicro.Renode.Peripherals.Timers
                 counter = CurrentCounter; timer.Enabled = false;
                 WriteControl(offset, value); Validate();
                 if(CounterRunning && (offset == 0x2A || (!wasRunning && counter == 0))) Drive();
-                if(!Operational) Output.Unset();
+                if(!Operational || (control2 & 0x200) == 0) Output.Unset();
                 UpdateInterrupts(); Schedule();
                 return;
             }
@@ -99,7 +99,7 @@ namespace Antmicro.Renode.Peripherals.Timers
         public double GetDutyCycle(int channel)
         {
             if(channel != 0) throw new ArgumentOutOfRangeException(nameof(channel));
-            if(!Operational) return 0;
+            if(!Operational || (control2 & 0x200) == 0) return 0;
             if(!CounterRunning) return Output.IsSet ? 1 : 0;
             var fraction = Math.Min((double)compare, CycleLength) / CycleLength;
             return Inverted ? 1 - fraction : fraction;

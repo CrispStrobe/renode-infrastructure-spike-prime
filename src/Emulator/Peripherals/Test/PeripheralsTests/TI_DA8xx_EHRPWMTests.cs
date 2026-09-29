@@ -39,6 +39,8 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.AreEqual(0x100, pwm.ReadWord(0xE) & 0x100);
             Assert.False(pwm.OutputA.IsSet);
             Assert.False(pwm.IRQ.IsSet);
+            pwm.WriteWord(8, 0x1234);
+            Assert.AreEqual(0x1234, pwm.ReadWord(8), "Frozen TBCNT accepts the full 16-bit value");
         }
 
         [Test]
@@ -210,6 +212,54 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.AreEqual("Coast", motor.State);
             Advance(100);
             Assert.AreEqual(10, motor.EmittedEdges);
+        }
+
+        [Test]
+        public void ShouldDriveAllFourEv3MotorSourcesThroughTheirPhysicalEncoderPins()
+        {
+            Configure(0, 9, 5);
+            pwm.WriteWord(0x12, 2); pwm.WriteWord(0x16, 0x12);
+            var ecap0 = new TI_DA8xx_ECAP(machine, 1000);
+            var ecap1 = new TI_DA8xx_ECAP(machine, 1000);
+            ecap0.WriteDoubleWord(8, 9); ecap0.WriteDoubleWord(0xC, 8); ecap0.WriteWord(0x2A, 0x210);
+            ecap1.WriteDoubleWord(8, 9); ecap1.WriteDoubleWord(0xC, 10); ecap1.WriteWord(0x2A, 0x210);
+            var sources = new IPWMDutyCycleSource[] { pwm, pwm, ecap0, ecap1 };
+            var channels = new[] { 1, 0, 0, 0 };
+            var drive0 = new[] { 63, 33, 104, 83 };
+            var drive1 = new[] { 54, 3, 89, 90 };
+            var encoder0 = new[] { 91, 88, 93, 105 };
+            var encoder1 = new[] { 4, 41, 62, 40 };
+            var gpio = new TI_DA8xx_GPIO(machine);
+            var motors = new PWMDrivenMotor[4];
+            for(var port = 0; port < motors.Length; port++)
+            {
+                motors[port] = new PWMDrivenMotor(machine, sources[port], channels[port], maximumEdgesPerSecond: 100);
+                motors[port].TachoA.Connect(gpio, encoder0[port]); motors[port].TachoB.Connect(gpio, encoder1[port]);
+                gpio.Connections[drive0[port]].Connect(motors[port], 0); gpio.Connections[drive1[port]].Connect(motors[port], 1);
+                foreach(var pin in new[] { drive0[port], drive1[port] })
+                {
+                    var dir = 0x10 + (pin / 32) * 0x28;
+                    gpio.WriteDoubleWord(dir, gpio.ReadDoubleWord(dir) & ~(1u << (pin % 32)));
+                }
+                gpio.WriteDoubleWord(0x18 + (drive0[port] / 32) * 0x28, 1u << (drive0[port] % 32));
+            }
+            Advance(100);
+            var expected = new long[] { 5, 2, 8, 10 };
+            for(var port = 0; port < motors.Length; port++)
+            {
+                Assert.AreEqual(expected[port], motors[port].TachometerCount, "Motor port " + port);
+                Assert.AreEqual((ulong)expected[port], motors[port].EmittedEdges);
+                foreach(var pin in new[] { encoder0[port], encoder1[port] })
+                {
+                    var bit = 1u << (pin % 32);
+                    Assert.AreEqual(gpio.Connections[pin].IsSet ? bit : 0u,
+                        gpio.ReadDoubleWord(0x20 + (pin / 32) * 0x28) & bit);
+                }
+            }
+            Assert.True(gpio.Connections[91].IsSet);
+            Assert.True(gpio.Connections[88].IsSet); Assert.True(gpio.Connections[41].IsSet);
+            Assert.False(gpio.Connections[93].IsSet); Assert.False(gpio.Connections[62].IsSet);
+            Assert.True(gpio.Connections[105].IsSet); Assert.True(gpio.Connections[40].IsSet);
         }
 
         [Test]
