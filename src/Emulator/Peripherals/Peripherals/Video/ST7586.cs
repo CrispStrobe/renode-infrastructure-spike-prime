@@ -54,6 +54,7 @@ namespace Antmicro.Renode.Peripherals.Video
         {
             // Command and parameter state intentionally survives CS edges. The
             // Linux MIPI-DBI path may split command and data into transactions.
+            PublishPendingFrame();
         }
 
         public void OnGPIO(int number, bool value)
@@ -61,7 +62,9 @@ namespace Antmicro.Renode.Peripherals.Video
             switch(number)
             {
             case ChipSelectGPIO:
+                var released = value && !chipSelect;
                 chipSelect = value;
+                if(released) PublishPendingFrame();
                 break;
             case DataCommandGPIO:
                 dataCommand = value;
@@ -89,6 +92,23 @@ namespace Antmicro.Renode.Peripherals.Video
             }
             Repaint();
             return visibleFrame[y * VisibleWidth + x];
+        }
+
+        public byte[] GetFrameSnapshot()
+        {
+            Repaint();
+            return (byte[])visibleFrame.Clone();
+        }
+
+        public void RefreshFrame()
+        {
+            DoRepaint();
+            frameDirty = false;
+        }
+
+        private void PublishPendingFrame()
+        {
+            if(frameDirty) RefreshFrame();
         }
 
         public uint FrameChecksum
@@ -146,12 +166,12 @@ namespace Antmicro.Renode.Peripherals.Video
             parameterIndex = 0;
             switch(command)
             {
-            case ExitSleep: sleeping = false; break;
-            case EnterSleep: sleeping = true; break;
-            case DisplayOff: displayOn = false; break;
-            case DisplayOn: displayOn = true; break;
-            case ExitInvert: inverted = false; break;
-            case EnterInvert: inverted = true; break;
+            case ExitSleep: sleeping = false; frameDirty = true; break;
+            case EnterSleep: sleeping = true; frameDirty = true; break;
+            case DisplayOff: displayOn = false; frameDirty = true; break;
+            case DisplayOn: displayOn = true; frameDirty = true; break;
+            case ExitInvert: inverted = false; frameDirty = true; break;
+            case EnterInvert: inverted = true; frameDirty = true; break;
             case MemoryWrite:
                 currentColumn = startColumn;
                 currentRow = startRow;
@@ -186,10 +206,12 @@ namespace Antmicro.Renode.Peripherals.Video
                 break;
             case EnableDDRAM:
                 ddramEnabled = (value & 0x2) != 0;
+                frameDirty = true;
                 break;
             case AddressMode:
                 mirrorX = (value & 0x40) != 0;
                 mirrorY = (value & 0x80) != 0;
+                frameDirty = true;
                 break;
             }
             Repaint();
@@ -201,6 +223,7 @@ namespace Antmicro.Renode.Peripherals.Video
             {
                 displayRam[currentRow * RamColumns + currentColumn] = value;
                 AcceptedDataBytes++;
+                frameDirty = true;
                 RenderRamByte(currentColumn, currentRow, value);
             }
             if(currentColumn < endColumn)
@@ -257,6 +280,7 @@ namespace Antmicro.Renode.Peripherals.Video
             endColumn = RamColumns - 1;
             endRow = RamRows - 1;
             AcceptedDataBytes = 0;
+            frameDirty = true;
             Repaint();
         }
 
@@ -294,6 +318,7 @@ namespace Antmicro.Renode.Peripherals.Video
         private bool inverted;
         private bool mirrorX;
         private bool mirrorY;
+        private bool frameDirty;
         private byte currentCommand;
         private int parameterIndex;
         private int startColumn;

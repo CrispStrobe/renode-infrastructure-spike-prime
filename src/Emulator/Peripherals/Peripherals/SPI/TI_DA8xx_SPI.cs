@@ -11,13 +11,14 @@ using Antmicro.Renode.Peripherals.Bus;
 namespace Antmicro.Renode.Peripherals.SPI
 {
     // A functional model of the AM1808 SPI master data path used by the EV3.
-    // Transfers are synchronous; timing, slave mode and multi-buffer mode are
+    // 8/16-bit MSB-first transfers are synchronous; timing, slave mode and multi-buffer mode are
     // deliberately outside this model's scope.
     public class TI_DA8xx_SPI : SimpleContainer<ISPIPeripheral>, IBytePeripheral,
         IWordPeripheral, IDoubleWordPeripheral, IKnownSize
     {
-        public TI_DA8xx_SPI(IMachine machine) : base(machine)
+        public TI_DA8xx_SPI(IMachine machine, bool externalChipSelect = true) : base(machine)
         {
+            this.externalChipSelect = externalChipSelect;
             IRQ = new GPIO();
             Reset();
         }
@@ -77,11 +78,11 @@ namespace Antmicro.Renode.Peripherals.SPI
             case PinControlClear: pinControl3 &= ~value; break;
             case Data0:
                 data0 = value & 0xFFFF;
-                Transfer((byte)data0, (int)((data1 >> 24) & 0x3));
+                Transfer((ushort)data0, (int)((data1 >> 24) & 0x3));
                 break;
             case Data1:
                 data1 = value & Data1Mask;
-                Transfer((byte)data1, (int)((data1 >> 24) & 0x3));
+                Transfer((ushort)data1, (int)((data1 >> 24) & 0x3));
                 break;
             case Delay: delay = value; break;
             case DefaultChipSelect: defaultChipSelect = value & 0xFF; break;
@@ -131,6 +132,7 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         public override void Reset()
         {
+            FinishHeldTransmission();
             globalControl0 = globalControl1 = interruptEnable = interruptLevel = stickyFlags = 0;
             pinControl0 = pinControl1 = pinControl2 = pinControl3 = 0;
             data0 = data1 = delay = 0;
@@ -171,32 +173,58 @@ namespace Antmicro.Renode.Peripherals.SPI
             return ReadDoubleWord(offset);
         }
 
-        private void Transfer(byte value, int formatIndex)
+        private void Transfer(ushort value, int formatIndex)
         {
             if(!IsEnabled || (globalControl1 & MasterAndClockMode) != MasterAndClockMode)
             {
                 return;
             }
             var characterLength = (int)(formats[formatIndex] & 0x1F);
-            if(characterLength != 8)
+            if((characterLength != 8 && characterLength != 16) || (formats[formatIndex] & (1u << 20)) != 0)
             {
                 stickyFlags |= DataLengthError;
                 UpdateInterrupt();
                 return;
             }
 
-            byte received;
+            ushort received;
             if((globalControl1 & Loopback) != 0)
             {
-                received = value;
-            }
-            else if(TryGetByAddress(0, out var peripheral))
-            {
-                received = peripheral.Transmit(value);
+                received = characterLength == 8 ? (ushort)(value & 0xFF) : value;
             }
             else
             {
+                ISPIPeripheral peripheral = null;
+                if(externalChipSelect)
+                {
+                    TryGetByAddress(0, out peripheral);
+                }
+                else
+                {
+                    var selected = (~data1 >> 16) & 0xFF;
+                    if(selected != 0 && (selected & (selected - 1)) == 0)
+                    {
+                        var index = 0;
+                        while((selected >>= 1) != 0) index++;
+                        TryGetByAddress(index, out peripheral);
+                    }
+                    if(heldPeripheral != peripheral) FinishHeldTransmission();
+                }
                 received = 0;
+                if(peripheral != null)
+                {
+                    if(characterLength == 16) received = (ushort)(peripheral.Transmit((byte)(value >> 8)) << 8);
+                    received |= peripheral.Transmit((byte)value);
+                    if(!externalChipSelect)
+                    {
+                        if((data1 & (1u << 28)) != 0) heldPeripheral = peripheral;
+                        else
+                        {
+                            peripheral.FinishTransmission();
+                            heldPeripheral = null;
+                        }
+                    }
+                }
             }
             transmitEmpty = true;
 
@@ -305,6 +333,7 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         private void ClearTransferState()
         {
+            FinishHeldTransmission();
             receiveData = 0;
             receiveFull = false;
             pendingReceiveFull = false;
@@ -314,6 +343,12 @@ namespace Antmicro.Renode.Peripherals.SPI
         }
 
         private bool IsEnabled => globalControl0 != 0 && (globalControl1 & Enable) != 0;
+
+        private void FinishHeldTransmission()
+        {
+            heldPeripheral?.FinishTransmission();
+            heldPeripheral = null;
+        }
 
         private uint globalControl0;
         private uint globalControl1;
@@ -326,11 +361,13 @@ namespace Antmicro.Renode.Peripherals.SPI
         private uint pinControl3;
         private uint data0;
         private uint data1;
-        private byte receiveData;
+        private ushort receiveData;
         private bool receiveFull;
-        private byte pendingReceiveData;
+        private ushort pendingReceiveData;
         private bool pendingReceiveFull;
         private bool transmitEmpty;
+        private ISPIPeripheral heldPeripheral;
+        private readonly bool externalChipSelect;
         private uint delay;
         private uint defaultChipSelect;
         private readonly uint[] formats = new uint[4];

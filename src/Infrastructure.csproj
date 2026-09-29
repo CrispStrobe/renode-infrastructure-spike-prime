@@ -786,6 +786,7 @@
     <Compile Include="Emulator/Peripherals/Peripherals/Miscellaneous/PrimeCellIDHelper.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/SPI/STM32SPI.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/SPI/TI_DA8xx_SPI.cs" />
+    <Compile Include="Emulator/Peripherals/Peripherals/Analog/ADS7957.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/SPI/STM32H7_SPI.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/SPI/STM32WBA_SPI.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/SPI/SynopsysSSI.cs" />
