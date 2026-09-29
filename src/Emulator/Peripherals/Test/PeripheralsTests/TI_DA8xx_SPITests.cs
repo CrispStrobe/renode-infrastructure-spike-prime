@@ -65,12 +65,48 @@ namespace Antmicro.Renode.PeripheralsTests
 
             spi.WriteDoubleWord(InterruptLevel, ReceiveInterrupt);
             Assert.IsTrue(spi.IRQ.IsSet);
-            Assert.AreEqual(9, spi.ReadDoubleWord(InterruptVector));
-
             Assert.AreEqual(0xEE, spi.ReadDoubleWord(EmulationBuffer) & 0xFF);
             Assert.IsTrue(spi.IRQ.IsSet, "SPIEMU must not consume receive data");
-            spi.ReadDoubleWord(Buffer);
+            Assert.AreEqual(0x24, spi.ReadDoubleWord(InterruptVector));
             Assert.IsFalse(spi.IRQ.IsSet);
+            Assert.AreNotEqual(0, spi.ReadDoubleWord(Buffer) & ReceiveEmpty);
+        }
+
+        [Test]
+        public void ShouldRouteTransmitEventAndPrioritizeOverrunVector()
+        {
+            const uint transmitInterrupt = 1 << 9;
+            spi.WriteDoubleWord(InterruptEnable, transmitInterrupt | ReceiveInterrupt | ReceiveOverrun);
+            spi.WriteDoubleWord(InterruptLevel, uint.MaxValue);
+            Assert.AreEqual(0x35F, spi.ReadDoubleWord(InterruptLevel));
+            Assert.IsFalse(spi.IRQ.IsSet);
+            spi.WriteDoubleWord(Data1, 0);
+            spi.ReadDoubleWord(Buffer);
+            Assert.IsTrue(spi.IRQ.IsSet);
+            Assert.AreEqual(0x28, spi.ReadDoubleWord(InterruptVector));
+            spi.WriteDoubleWord(Data1, 1);
+            spi.WriteDoubleWord(Data1, 2);
+            spi.WriteDoubleWord(Data1, 3);
+            Assert.AreEqual(0x26, spi.ReadDoubleWord(InterruptVector));
+            Assert.AreEqual(0, spi.ReadDoubleWord(Flags) & ReceiveOverrun);
+            Assert.AreEqual(0x24, spi.ReadDoubleWord(InterruptVector));
+            Assert.AreEqual(0x24, spi.ReadDoubleWord(InterruptVector));
+            Assert.AreEqual(0x28, spi.ReadDoubleWord(InterruptVector));
+        }
+
+        [Test]
+        public void ShouldClearOnlyWrittenFlagLanes()
+        {
+            spi.WriteDoubleWord(Data1, 1);
+            spi.WriteDoubleWord(Data1, 2);
+            spi.WriteDoubleWord(Data1, 3);
+            spi.WriteByte(Flags + 1, 1);
+            Assert.AreNotEqual(0, spi.ReadDoubleWord(Flags) & ReceiveInterrupt, "the internal RXBUF is promoted");
+            Assert.AreNotEqual(0, spi.ReadDoubleWord(Flags) & ReceiveOverrun);
+            spi.WriteByte(Flags + 1, 1);
+            Assert.AreEqual(0, spi.ReadDoubleWord(Flags) & ReceiveInterrupt);
+            spi.WriteByte(Flags, (byte)ReceiveOverrun);
+            Assert.AreEqual(0, spi.ReadDoubleWord(Flags) & ReceiveOverrun);
         }
 
         [Test]
@@ -78,16 +114,20 @@ namespace Antmicro.Renode.PeripheralsTests
         {
             spi.WriteDoubleWord(Data1, 0x01);
             spi.WriteDoubleWord(Data1, 0x02);
+            Assert.AreEqual(0, spi.ReadDoubleWord(Flags) & ReceiveOverrun, "SPIBUF and RXBUF hold two characters");
+            spi.WriteDoubleWord(Data1, 0x03);
             Assert.AreNotEqual(0, spi.ReadDoubleWord(Flags) & ReceiveOverrun);
             Assert.AreNotEqual(0, spi.ReadDoubleWord(EmulationBuffer) & BufferReceiveOverrun);
             Assert.AreEqual(0xFE, spi.ReadDoubleWord(Buffer) & 0xFF, "overrun keeps the unread byte");
+            Assert.AreEqual(0xFD, spi.ReadDoubleWord(Buffer) & 0xFF, "reading SPIBUF promotes internal RXBUF");
+            Assert.AreNotEqual(0, spi.ReadDoubleWord(Buffer) & ReceiveEmpty);
 
             spi.WriteDoubleWord(Flags, ReceiveOverrun);
             Assert.AreEqual(0, spi.ReadDoubleWord(Flags) & ReceiveOverrun);
             spi.WriteDoubleWord(Format0, 16);
             spi.WriteDoubleWord(Data1, 0x33);
             Assert.AreNotEqual(0, spi.ReadDoubleWord(Flags) & DataLengthError);
-            CollectionAssert.AreEqual(new byte[] { 0x01, 0x02 }, target.Bytes);
+            CollectionAssert.AreEqual(new byte[] { 0x01, 0x02, 0x03 }, target.Bytes);
         }
 
         [Test]

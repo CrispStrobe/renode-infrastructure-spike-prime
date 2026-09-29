@@ -14,7 +14,7 @@ namespace Antmicro.Renode.Peripherals.Video
 {
     // Sitronix ST7586 display controller configured as on LEGO EV3. The model
     // accepts the controller's three-pixels-per-byte grey DDRAM stream and
-    // exposes the EV3's 178x128 visible area as an L8 video surface.
+    // exposes the EV3's 178x128 visible area as an RGB888 video surface.
     public class ST7586 : AutoRepaintingVideo, ISPIPeripheral, IGPIOReceiver
     {
         public ST7586(IMachine machine) : base(machine)

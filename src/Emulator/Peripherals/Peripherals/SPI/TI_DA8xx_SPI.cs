@@ -64,8 +64,11 @@ namespace Antmicro.Renode.Peripherals.SPI
                 if(wasEnabled && !IsEnabled) ClearTransferState();
                 break;
             case InterruptEnable: interruptEnable = value & InterruptMask; break;
-            case InterruptLevel: interruptLevel = value & InterruptMask; break;
-            case Flags: stickyFlags &= ~(value & StickyFlagMask); break;
+            case InterruptLevel: interruptLevel = value & InterruptEventMask; break;
+            case Flags:
+                stickyFlags &= ~(value & StickyFlagMask);
+                if((value & ReceiveInterrupt) != 0) ConsumeReceiveBuffer();
+                break;
             case PinControl0: pinControl0 = value; break;
             case PinControl1: pinControl1 = value; break;
             case PinControl2: pinControl2 = value; break;
@@ -101,7 +104,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             var aligned = offset & ~3L;
             if(aligned == Data1 && (offset & 2) != 0)
             {
-                data1 = (data1 & 0xFFFF) | ((uint)value << 16);
+                data1 = ((data1 & 0xFFFF) | ((uint)value << 16)) & Data1Mask;
                 UpdateInterrupt();
                 return;
             }
@@ -119,7 +122,7 @@ namespace Antmicro.Renode.Peripherals.SPI
             if((offset & ~3L) == Data1 && (offset & 3) >= 2)
             {
                 var shift = (int)((offset & 3) * 8);
-                data1 = (data1 & ~(0xFFu << shift)) | ((uint)value << shift);
+                data1 = ((data1 & ~(0xFFu << shift)) | ((uint)value << shift)) & Data1Mask;
                 UpdateInterrupt();
                 return;
             }
@@ -130,10 +133,13 @@ namespace Antmicro.Renode.Peripherals.SPI
         {
             globalControl0 = globalControl1 = interruptEnable = interruptLevel = stickyFlags = 0;
             pinControl0 = pinControl1 = pinControl2 = pinControl3 = 0;
-            data0 = data1 = delay = defaultChipSelect = 0;
+            data0 = data1 = delay = 0;
+            defaultChipSelect = 0xFF;
             for(var i = 0; i < formats.Length; ++i) formats[i] = 0;
             receiveData = 0;
             receiveFull = false;
+            pendingReceiveFull = false;
+            transmitEmpty = false;
             IRQ.Set(false);
         }
 
@@ -146,6 +152,11 @@ namespace Antmicro.Renode.Peripherals.SPI
             var aligned = offset & ~3L;
             var shift = (int)((offset & 3) * 8);
             var mask = width == 1 ? 0xFFu : 0xFFFFu;
+            if(aligned == Flags || aligned == PinControlSet || aligned == PinControlClear)
+            {
+                WriteDoubleWord(aligned, (value & mask) << shift);
+                return;
+            }
             var current = ReadDoubleWordWithoutSideEffects(aligned);
             var merged = (current & ~(mask << shift)) | ((value & mask) << shift);
             WriteDoubleWord(aligned, merged);
@@ -187,10 +198,19 @@ namespace Antmicro.Renode.Peripherals.SPI
             {
                 received = 0;
             }
+            transmitEmpty = true;
 
             if(receiveFull)
             {
-                stickyFlags |= ReceiveOverrun;
+                if(pendingReceiveFull)
+                {
+                    stickyFlags |= ReceiveOverrun;
+                }
+                else
+                {
+                    pendingReceiveData = received;
+                    pendingReceiveFull = true;
+                }
             }
             else
             {
@@ -205,10 +225,17 @@ namespace Antmicro.Renode.Peripherals.SPI
             var result = ComposeBuffer();
             if(consume && receiveFull)
             {
-                receiveFull = false;
+                ConsumeReceiveBuffer();
                 UpdateInterrupt();
             }
             return result;
+        }
+
+        private void ConsumeReceiveBuffer()
+        {
+            receiveFull = pendingReceiveFull;
+            if(pendingReceiveFull) receiveData = pendingReceiveData;
+            pendingReceiveFull = false;
         }
 
         private uint ComposeBuffer()
@@ -224,8 +251,8 @@ namespace Antmicro.Renode.Peripherals.SPI
         {
             get
             {
-                var result = stickyFlags;
-                if(IsEnabled) result |= TransmitInterrupt;
+                var result = stickyFlags | 0x01000000u;
+                if(transmitEmpty) result |= TransmitInterrupt;
                 if(receiveFull) result |= ReceiveInterrupt;
                 return result;
             }
@@ -234,11 +261,31 @@ namespace Antmicro.Renode.Peripherals.SPI
         private uint GetInterruptVector()
         {
             var pending = CurrentFlags & interruptEnable & interruptLevel;
-            for(var bit = 0; bit < 10; ++bit)
+            uint vector;
+            if((pending & 0x1F) != 0)
             {
-                if((pending & (1u << bit)) != 0) return (uint)(bit + 1);
+                vector = 0x11;
             }
-            return 0;
+            else if((pending & ReceiveOverrun) != 0)
+            {
+                vector = 0x13;
+                stickyFlags &= ~ReceiveOverrun;
+            }
+            else if((pending & ReceiveInterrupt) != 0)
+            {
+                vector = 0x12;
+                ConsumeReceiveBuffer();
+            }
+            else if((pending & TransmitInterrupt) != 0)
+            {
+                vector = 0x14;
+            }
+            else
+            {
+                vector = 0;
+            }
+            UpdateInterrupt();
+            return vector << 1;
         }
 
         private void UpdateInterrupt()
@@ -250,7 +297,8 @@ namespace Antmicro.Renode.Peripherals.SPI
         {
             globalControl1 = interruptEnable = interruptLevel = stickyFlags = 0;
             pinControl0 = pinControl1 = pinControl2 = pinControl3 = 0;
-            data0 = data1 = delay = defaultChipSelect = 0;
+            data0 = data1 = delay = 0;
+            defaultChipSelect = 0xFF;
             for(var i = 0; i < formats.Length; ++i) formats[i] = 0;
             ClearTransferState();
         }
@@ -259,6 +307,8 @@ namespace Antmicro.Renode.Peripherals.SPI
         {
             receiveData = 0;
             receiveFull = false;
+            pendingReceiveFull = false;
+            transmitEmpty = false;
             stickyFlags = 0;
             UpdateInterrupt();
         }
@@ -278,6 +328,9 @@ namespace Antmicro.Renode.Peripherals.SPI
         private uint data1;
         private byte receiveData;
         private bool receiveFull;
+        private byte pendingReceiveData;
+        private bool pendingReceiveFull;
+        private bool transmitEmpty;
         private uint delay;
         private uint defaultChipSelect;
         private readonly uint[] formats = new uint[4];
@@ -310,7 +363,8 @@ namespace Antmicro.Renode.Peripherals.SPI
         private const uint ReceiveInterrupt = 1 << 8;
         private const uint TransmitInterrupt = 1 << 9;
         private const uint StickyFlagMask = 0x5F;
-        private const uint InterruptMask = 0x0300015F;
+        private const uint InterruptEventMask = 0x35F;
+        private const uint InterruptMask = 0x0101035F;
         private const uint ReceiveEmpty = 1u << 31;
         private const uint BufferReceiveOverrun = 1u << 30;
         private const uint BufferDataLengthError = 1u << 24;
@@ -318,6 +372,6 @@ namespace Antmicro.Renode.Peripherals.SPI
         private const uint Loopback = 1u << 16;
         private const uint Enable = 1u << 24;
         private const uint GlobalControl1Mask = 0x81010103;
-        private const uint Data1Mask = 0x173FFFFF;
+        private const uint Data1Mask = 0x17FFFFFF;
     }
 }
