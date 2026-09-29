@@ -12,7 +12,7 @@ namespace Antmicro.Renode.Peripherals.GPIOPort
     // TI DA8xx/AM1808 GPIO controller. Pins are numbered as bank * 16 + pin;
     // the inherited Connections collection exposes the corresponding physical
     // pin levels, while OnGPIO injects levels driven by external devices.
-    public class TI_DA8xx_GPIO : BaseGPIOPort, IDoubleWordPeripheral, IKnownSize
+    public class TI_DA8xx_GPIO : BaseGPIOPort, IDoubleWordPeripheral, IWordPeripheral, IBytePeripheral, IKnownSize
     {
         public TI_DA8xx_GPIO(IMachine machine) : base(machine, NumberOfPins)
         {
@@ -25,6 +25,31 @@ namespace Antmicro.Renode.Peripherals.GPIOPort
             bankInterrupts = new GPIO[NumberOfBanks];
             for(var bank = 0; bank < NumberOfBanks; bank++) bankInterrupts[bank] = new GPIO();
             Reset();
+        }
+
+        public byte ReadByte(long offset) => (byte)(ReadDoubleWord(offset & ~3L) >> ((int)(offset & 3) * 8));
+
+        public ushort ReadWord(long offset) => (ushort)(ReadByte(offset) | (ReadByte(offset + 1) << 8));
+
+        public void WriteByte(long offset, byte value)
+        {
+            var aligned = offset & ~3L;
+            var shift = (int)(offset & 3) * 8;
+            var data = (uint)value << shift;
+            // Only ordinary R/W registers preserve untouched lanes. Set/clear
+            // aliases and W1C status must receive zero outside the written lane.
+            if(aligned == BankInterruptEnable || (TryDecode(aligned, out var group, out var register)
+                && (register == GroupRegister.Direction || register == GroupRegister.Output)))
+            {
+                data |= ReadDoubleWord(aligned) & ~(0xFFu << shift);
+            }
+            WriteDoubleWord(aligned, data);
+        }
+
+        public void WriteWord(long offset, ushort value)
+        {
+            WriteByte(offset, (byte)value);
+            WriteByte(offset + 1, (byte)(value >> 8));
         }
 
         public uint ReadDoubleWord(long offset)

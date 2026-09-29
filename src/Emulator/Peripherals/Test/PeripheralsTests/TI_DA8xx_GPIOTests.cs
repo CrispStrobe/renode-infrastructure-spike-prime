@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 using Antmicro.Renode.Core;
+using Antmicro.Renode.Peripherals.Bus;
 using Antmicro.Renode.Peripherals.GPIOPort;
 using Antmicro.Renode.Peripherals.IRQControllers;
 
@@ -24,6 +25,47 @@ namespace Antmicro.Renode.PeripheralsTests
         public void TearDown()
         {
             machine.Dispose();
+        }
+
+        [Test]
+        public void ShouldExposeNonDestructiveByteAndWordReadsThroughSystemBus()
+        {
+            const ulong address = 0x01E26000;
+            machine.SystemBus.Register(gpio, new BusRangeRegistration(address, (ulong)gpio.Size));
+            gpio.OnGPIO(43, true);
+            gpio.OnGPIO(44, true);
+            gpio.OnGPIO(55, true);
+            CollectionAssert.AreEqual(new byte[] { 0x05, 0x01, 0x83, 0x44 }, machine.SystemBus.ReadBytes(address, 4));
+            CollectionAssert.AreEqual(new byte[] { 0x00, 0x18, 0x80, 0x00 }, machine.SystemBus.ReadBytes(address + 0x48, 4));
+            Assert.AreEqual(0x1800, machine.SystemBus.ReadWord(address + 0x48));
+            Assert.AreEqual(0x0080, machine.SystemBus.ReadWord(address + 0x4A));
+            gpio.WriteDoubleWord(0x4C, (1u << 11) | (1u << 23));
+            gpio.OnGPIO(43, false);
+            gpio.OnGPIO(43, true);
+            gpio.OnGPIO(55, false);
+            gpio.OnGPIO(55, true);
+            CollectionAssert.AreEqual(new byte[] { 0x00, 0x08, 0x80, 0x00 }, machine.SystemBus.ReadBytes(address + 0x5C, 4));
+            Assert.AreEqual(0x00800800u, gpio.ReadDoubleWord(0x5C));
+        }
+
+        [Test]
+        public void ShouldKeepNarrowWritesWithinTheirLaneForAliasesAndW1C()
+        {
+            const ulong address = 0x01E26000;
+            machine.SystemBus.Register(gpio, new BusRangeRegistration(address, (ulong)gpio.Size));
+            gpio.WriteDoubleWord(0x38, 0);
+            gpio.WriteDoubleWord(0x3C, 0x00800800);
+            machine.SystemBus.WriteByte(address + 0x45, 0x08); // CLR_DATA lane 1: GPIO43 only.
+            Assert.AreEqual(0x00800000u, gpio.ReadDoubleWord(0x3C));
+            machine.SystemBus.WriteWord(address + 0x3C, 0x1800); // Preserve upper output lane.
+            Assert.AreEqual(0x00801800u, gpio.ReadDoubleWord(0x3C));
+            gpio.WriteDoubleWord(0x4C, 0x00800800);
+            gpio.WriteDoubleWord(0x44, 0x00800800);
+            gpio.WriteDoubleWord(0x40, 0x00800800);
+            machine.SystemBus.WriteByte(address + 0x5D, 0x08); // W1C GPIO43, preserve GPIO55.
+            Assert.AreEqual(0x00800000u, gpio.ReadDoubleWord(0x5C));
+            machine.SystemBus.WriteWord(address + 0x5E, 0x0080);
+            Assert.AreEqual(0u, gpio.ReadDoubleWord(0x5C));
         }
 
         [Test]
