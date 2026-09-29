@@ -1023,6 +1023,7 @@
     <Compile Include="Emulator/Peripherals/Peripherals/GPIOPort/TI_DA8xx_GPIO.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Timers/IPWMDutyCycleSource.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Timers/TI_DA8xx_EHRPWM.cs" />
+    <Compile Include="Emulator/Peripherals/Peripherals/Timers/TI_DA8xx_ECAP.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Miscellaneous/PWMDrivenMotor.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/Miscellaneous/SevenSegmentsDisplay.cs" />
     <Compile Include="Emulator/Peripherals/Peripherals/GPIOPort/NRF52840_GPIO.cs" />

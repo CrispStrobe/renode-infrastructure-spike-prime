@@ -58,6 +58,7 @@ namespace Antmicro.Renode.Peripherals.Timers
 
         public void WriteWord(long offset, ushort value)
         {
+            InvalidateDerivedState();
             var wasRunning = timer.Enabled;
             phase = CurrentPhase;
             var currentCounter = CounterAt(phase);
@@ -135,6 +136,7 @@ namespace Antmicro.Renode.Peripherals.Timers
             registers[TBCTL / 2] = 0x83;
             period = phase = nextPhase = 0; interruptCount = 0;
             oneShotTrip = cycleTrip = extraFeatureWritten = false;
+            InvalidateDerivedState();
             UnsupportedConfiguration = null;
             OutputA.Unset(); OutputB.Unset(); IRQ.Unset(); TripIRQ.Unset();
         }
@@ -146,6 +148,7 @@ namespace Antmicro.Renode.Peripherals.Timers
             var forced = ForcedLevel(channel);
             if(forced.HasValue) return forced.Value ? 1 : 0;
             if(Mode == 3) return rawLevel[channel] ? 1 : 0;
+            if(cachedDuty[channel].HasValue) return cachedDuty[channel].Value;
             var events = EventPhases();
             var level = rawLevel[channel];
             double highTicks = 0;
@@ -158,7 +161,9 @@ namespace Antmicro.Renode.Peripherals.Timers
                     if(cycle >= 2 && level) highTicks += (i + 1 < events.Count ? events[i + 1] : CycleLength) - events[i];
                 }
             }
-            return highTicks / (2 * (double)CycleLength);
+            var duty = highTicks / (2 * (double)CycleLength);
+            cachedDuty[channel] = duty;
+            return duty;
         }
 
         public double DutyCycleA => GetDutyCycle(0);
@@ -210,13 +215,18 @@ namespace Antmicro.Renode.Peripherals.Timers
 
         private void LoadShadow(bool zero, bool atPeriod)
         {
-            if(zero && (registers[TBCTL / 2] & 8) == 0) period = registers[TBPRD / 2];
+            if(zero && (registers[TBCTL / 2] & 8) == 0 && period != registers[TBPRD / 2])
+            {
+                period = registers[TBPRD / 2]; InvalidateDerivedState();
+            }
             for(var channel = 0; channel < 2; channel++)
             {
                 var load = (registers[CMPCTL / 2] >> (channel * 2)) & 3;
                 if(!ImmediateCompare(channel) && ((zero && (load == 0 || load == 2)) || (atPeriod && (load == 1 || load == 2))))
                 {
-                    compare[channel] = registers[(channel == 0 ? CMPA : CMPB) / 2]; shadowFull[channel] = false;
+                    var value = registers[(channel == 0 ? CMPA : CMPB) / 2];
+                    if(compare[channel] != value) { compare[channel] = value; InvalidateDerivedState(); }
+                    shadowFull[channel] = false;
                 }
             }
         }
@@ -234,6 +244,7 @@ namespace Antmicro.Renode.Peripherals.Timers
 
         private List<uint> EventPhases()
         {
+            if(cachedPhases != null) return cachedPhases;
             var events = new SortedSet<uint> { 0, period };
             if(Mode == 2) events.Add(period);
             foreach(var cmp in compare)
@@ -242,13 +253,13 @@ namespace Antmicro.Renode.Peripherals.Timers
                 events.Add(Mode == 1 ? period - cmp : cmp);
                 if(Mode == 2) events.Add((2 * period - cmp) % CycleLength);
             }
-            return events.Where(x => x < CycleLength).ToList();
+            cachedPhases = events.Where(x => x < CycleLength).ToList();
+            return cachedPhases;
         }
 
         private bool QualifiedLevel(int channel, uint eventPhase, bool initial)
         {
-            var priority = Mode == 0 ? new[] { 1, 4, 2, 0 } : Mode == 1 ? new[] { 0, 5, 3, 1 }
-                : IsDown(eventPhase) ? new[] { 5, 3, 1, 4, 2, 0 } : new[] { 4, 2, 0, 5, 3, 1 };
+            var priority = Mode == 0 ? UpPriority : Mode == 1 ? DownPriority : IsDown(eventPhase) ? UpDownDescendingPriority : UpDownAscendingPriority;
             var qualifier = registers[(channel == 0 ? AQCTLA : AQCTLB) / 2];
             foreach(var evt in priority)
             {
@@ -303,6 +314,7 @@ namespace Antmicro.Renode.Peripherals.Timers
             TripIRQ.Set(UnsupportedConfiguration == null && (registers[TZFLG / 2] & 1) != 0);
         }
         private bool ImmediateCompare(int channel) => (registers[CMPCTL / 2] & (channel == 0 ? 0x10 : 0x40)) != 0;
+        private void InvalidateDerivedState() { cachedPhases = null; cachedDuty[0] = cachedDuty[1] = null; }
         private static bool ApplyAction(bool level, int action) => action == 1 ? false : action == 2 ? true : action == 3 ? !level : level;
         private int Mode => registers[TBCTL / 2] & 3;
         private uint CycleLength => Mode == 2 ? Math.Max(1u, 2 * period) : period + 1;
@@ -318,6 +330,10 @@ namespace Antmicro.Renode.Peripherals.Timers
         private readonly ushort[] registers = new ushort[0x40 / 2];
         private readonly uint[] compare = new uint[2];
         private readonly bool[] shadowFull = new bool[2], rawLevel = new bool[2];
+        private readonly double?[] cachedDuty = new double?[2];
+        private List<uint> cachedPhases;
+        private static readonly int[] UpPriority = { 1, 4, 2, 0 }, DownPriority = { 0, 5, 3, 1 };
+        private static readonly int[] UpDownAscendingPriority = { 4, 2, 0, 5, 3, 1 }, UpDownDescendingPriority = { 5, 3, 1, 4, 2, 0 };
         private uint period, phase, nextPhase;
         private int interruptCount;
         private bool oneShotTrip, cycleTrip, extraFeatureWritten;
