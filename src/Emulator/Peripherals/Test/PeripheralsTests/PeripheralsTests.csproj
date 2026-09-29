@@ -49,6 +49,7 @@
     <Compile Include="TI_DA8xx_EDMA3TCTests.cs" />
     <Compile Include="TI_DA8xx_GPIOTests.cs" />
     <Compile Include="TI_DA8xx_MMCSDTests.cs" />
+    <Compile Include="TI_DA8xx_SPITests.cs" />
     <Compile Include="TI_DA8xx_PSCTests.cs" />
     <Compile Include="TI_DA8xx_PLLCTests.cs" />
     <Compile Include="TI_DA8xx_SYSCFG0Tests.cs" />
@@ -69,6 +70,7 @@
     <Compile Include="STM32_UARTTests.cs" />
     <Compile Include="STM32F7I2CTests.cs" />
     <Compile Include="TLC5955Tests.cs" />
+    <Compile Include="ST7586Tests.cs" />
     <Compile Include="PrimeButtonLadderTests.cs" />
     <Compile Include="STM32TimerBoardClockTests.cs" />
     <Compile Include="LegoLpf2PortTests.cs" />
