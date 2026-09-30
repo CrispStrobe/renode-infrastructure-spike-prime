@@ -48,6 +48,8 @@
     <Compile Include="TI_DA8xx_EDMA3CCTests.cs" />
     <Compile Include="TI_DA8xx_EDMA3TCTests.cs" />
     <Compile Include="TI_DA8xx_GPIOTests.cs" />
+    <Compile Include="TI_DA8xx_EHRPWMTests.cs" />
+    <Compile Include="TI_DA8xx_ECAPTests.cs" />
     <Compile Include="TI_DA8xx_MMCSDTests.cs" />
     <Compile Include="TI_DA8xx_SPITests.cs" />
     <Compile Include="ADS7957Tests.cs" />
