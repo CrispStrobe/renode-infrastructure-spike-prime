@@ -57,7 +57,7 @@ namespace Antmicro.Renode.Peripherals.Timers
             default: WriteControl(offset, (ushort)value); WriteControl(offset + 2, (ushort)(value >> 16)); break;
             }
             Validate();
-            if(!wasRunning && CounterRunning && counter == 0) Drive();
+            if(CounterRunning && (offset == 0x28 || (!wasRunning && counter == 0))) Drive();
             if(!Operational || (control2 & 0x200) == 0) Output.Unset();
             UpdateInterrupts(); Schedule();
         }

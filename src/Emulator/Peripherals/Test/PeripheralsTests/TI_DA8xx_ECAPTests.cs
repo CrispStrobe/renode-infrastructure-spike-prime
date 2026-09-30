@@ -55,6 +55,23 @@ namespace Antmicro.Renode.PeripheralsTests
         }
 
         [Test]
+        public void ShouldApplyLivePolarityChangesThroughEveryControlBusWidth()
+        {
+            Configure(9, 5);
+            Advance(2);
+            Assert.True(pwm.Output.IsSet);
+            pwm.WriteDoubleWord(0x28, 0x06100000);
+            Assert.False(pwm.Output.IsSet);
+            Assert.AreEqual(2u, pwm.ReadDoubleWord(0));
+            pwm.WriteWord(0x2A, 0x210);
+            Assert.True(pwm.Output.IsSet);
+            pwm.WriteByte(0x2B, 6);
+            Assert.False(pwm.Output.IsSet);
+            Advance(3);
+            Assert.True(pwm.Output.IsSet);
+        }
+
+        [Test]
         public void ShouldLoadShorterPeriodShadowAtBoundaryAndLatchEventIrq()
         {
             Configure(9, 5);
