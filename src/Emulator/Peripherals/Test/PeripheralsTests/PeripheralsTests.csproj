@@ -50,6 +50,7 @@
     <Compile Include="TI_DA8xx_GPIOTests.cs" />
     <Compile Include="TI_DA8xx_MMCSDTests.cs" />
     <Compile Include="TI_DA8xx_SPITests.cs" />
+    <Compile Include="ADS7957Tests.cs" />
     <Compile Include="TI_DA8xx_PSCTests.cs" />
     <Compile Include="TI_DA8xx_PLLCTests.cs" />
     <Compile Include="TI_DA8xx_SYSCFG0Tests.cs" />

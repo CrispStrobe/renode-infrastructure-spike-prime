@@ -124,7 +124,7 @@ namespace Antmicro.Renode.PeripheralsTests
 
             spi.WriteDoubleWord(Flags, ReceiveOverrun);
             Assert.AreEqual(0, spi.ReadDoubleWord(Flags) & ReceiveOverrun);
-            spi.WriteDoubleWord(Format0, 16);
+            spi.WriteDoubleWord(Format0, 7);
             spi.WriteDoubleWord(Data1, 0x33);
             Assert.AreNotEqual(0, spi.ReadDoubleWord(Flags) & DataLengthError);
             CollectionAssert.AreEqual(new byte[] { 0x01, 0x02, 0x03 }, target.Bytes);
@@ -179,6 +179,7 @@ namespace Antmicro.Renode.PeripheralsTests
 
             public void FinishTransmission()
             {
+                FinishedTransactions++;
             }
 
             public void Reset()
@@ -187,6 +188,46 @@ namespace Antmicro.Renode.PeripheralsTests
             }
 
             public List<byte> Bytes { get; } = new List<byte>();
+            public int FinishedTransactions { get; private set; }
+        }
+
+        [Test]
+        public void ShouldRouteHardwareChipSelectAndExchangeComplete16BitWords()
+        {
+            var hardware = new TI_DA8xx_SPI(machine, externalChipSelect: false);
+            machine.SystemBus.Register(hardware, new BusPointRegistration(SPIAddress + 0x1000));
+            var adcTarget = new RecordingTarget();
+            hardware.Register(adcTarget, new NumberRegistrationPoint<int>(3));
+            hardware.Register(target, new NumberRegistrationPoint<int>(0));
+            hardware.WriteDoubleWord(GlobalControl0, 1);
+            hardware.WriteDoubleWord(GlobalControl1, Enable | Master | ClockMode);
+            hardware.WriteDoubleWord(Format0, 16);
+            hardware.WriteDoubleWord(Data1, 0x00F71234);
+            Assert.AreEqual(0xEDCB, hardware.ReadDoubleWord(Buffer) & 0xFFFF);
+            CollectionAssert.AreEqual(new byte[] { 0x12, 0x34 }, adcTarget.Bytes);
+            CollectionAssert.IsEmpty(target.Bytes);
+            Assert.AreEqual(1, adcTarget.FinishedTransactions);
+            hardware.WriteDoubleWord(Data1, 0x00FF5678);
+            Assert.AreEqual(0, hardware.ReadDoubleWord(Buffer) & 0xFFFF);
+            Assert.AreEqual(2, adcTarget.Bytes.Count, "all CS lines high must not clock a target");
+        }
+
+        [Test]
+        public void ShouldKeepHardwareTransactionAcrossControlLanesAndFinishOnDisable()
+        {
+            var hardware = new TI_DA8xx_SPI(machine, externalChipSelect: false);
+            machine.SystemBus.Register(hardware, new BusPointRegistration(SPIAddress + 0x1000));
+            hardware.Register(target, new NumberRegistrationPoint<int>(3));
+            hardware.WriteDoubleWord(GlobalControl0, 1);
+            hardware.WriteDoubleWord(GlobalControl1, Enable | Master | ClockMode);
+            hardware.WriteDoubleWord(Format0, 16);
+            hardware.WriteWord(Data1 + 2, 0x10F7);
+            CollectionAssert.IsEmpty(target.Bytes);
+            hardware.WriteWord(Data1, 0xA5C3);
+            Assert.AreEqual(0, target.FinishedTransactions);
+            hardware.WriteDoubleWord(GlobalControl1, 0);
+            Assert.AreEqual(1, target.FinishedTransactions);
+            CollectionAssert.AreEqual(new byte[] { 0xA5, 0xC3 }, target.Bytes);
         }
     }
 }

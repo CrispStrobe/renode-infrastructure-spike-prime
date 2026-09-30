@@ -107,6 +107,36 @@ namespace Antmicro.Renode.PeripheralsTests
             Command(0x2C);
         }
 
+        [Test]
+        public void ShouldPublishOneRgbFrameAtTransactionBoundaryAndReturnIndependentSnapshot()
+        {
+            InitializeAndSetWindow(0, 1, 0, 0);
+            display.FinishTransmission();
+            var events = 0;
+            byte[] published = null;
+            display.FrameRendered += frame => { events++; published = (byte[])frame.Clone(); };
+            Data(0xE0); Data(0x1C);
+            Assert.AreEqual(0, events);
+            display.FinishTransmission();
+            Assert.AreEqual(1, events);
+            Assert.AreEqual(ST7586.VisibleWidth * ST7586.VisibleHeight * 3, published.Length);
+            Assert.AreEqual(0, published[0]);
+            Assert.AreEqual(255, published[3]);
+            var snapshot = display.GetFrameSnapshot();
+            Assert.AreEqual(ST7586.VisibleWidth * ST7586.VisibleHeight, snapshot.Length);
+            snapshot[0] = 255;
+            Assert.AreEqual(0, display.GetFrameSnapshot()[0]);
+            display.OnGPIO(ST7586.ChipSelectGPIO, true);
+            Data(0xFF);
+            display.FinishTransmission();
+            Assert.AreEqual(1, events, "CS-gated bytes do not publish unchanged frames");
+            display.OnGPIO(ST7586.ResetGPIO, true);
+            display.RefreshFrame();
+            Data(0xFF);
+            display.FinishTransmission();
+            Assert.AreEqual(2, events, "reset-gated bytes do not dirty the reset frame");
+        }
+
         private void Initialize()
         {
             Command(0x11);
