@@ -43,6 +43,12 @@ namespace Antmicro.Renode.Peripherals.UART
                 case "none":
                     Device = null;
                     break;
+                case "color":
+                    Device = new Lpf2ArenaColorSensor();
+                    break;
+                case "force":
+                    Device = new Lpf2ArenaForceSensor();
+                    break;
                 case "ultrasonic":
                     Device = new Lpf2UltrasonicSensor();
                     break;
