@@ -126,7 +126,8 @@ namespace Antmicro.Renode.Peripherals.UART
                 Array.Copy(source, name, Math.Min(source.Length, name.Length));
                 var extendedMode = mode.Number >= 8 ? (byte)0x20 : (byte)0x00;
                 SendMessage((byte)(0x98 | (mode.Number & 0x7)), new[] { extendedMode }.Concat(name).ToArray());
-                SendMessage((byte)(0xa0 | (mode.Number & 0x7)), (byte)(0x80 | extendedMode),
+                // FORMAT has four data bytes plus its INFO subtype byte.
+                SendMessage((byte)(0x90 | (mode.Number & 0x7)), (byte)(0x80 | extendedMode),
                     mode.Values, (byte)mode.DataType, 3, 0);
             }
             Transmit(0x04); // ACK: device information is complete.
@@ -271,6 +272,15 @@ namespace Antmicro.Renode.Peripherals.UART
             ReceivedFrames++;
             var kind = frame[0] & 0xc0;
             var mode = (byte)(frame[0] & 0x7);
+            // The full firmware probes the requested fast baud before reading
+            // device information. Acknowledge a supported speed, then announce.
+            if(kind == 0x40 && mode == 0x2 && frame.Length == 6 &&
+                BitConverter.ToUInt32(frame, 1) == BaudRate)
+            {
+                Transmit(0x04);
+                if(State == Lpf2PortState.Attached) StartNegotiation();
+                return;
+            }
             if(kind == 0x40 && (frame[0] & 0x7) == 0x3 && frame.Length >= 3)
             {
                 if(Device.Modes.Any(x => x.Number == frame[1]))
