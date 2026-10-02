@@ -21,5 +21,7 @@ The reproducible scanner is `tools/audit_source_similarity.py` in that fork.
 This comparison does not prove the absence of all short or paraphrased copying,
 and does not audit every Renode component's licensing or historical commit.
 Original third-party licences remain applicable. The separate firmware review
-has unresolved Madgwick and historical-distribution findings; they are not
-cleared by this Renode comparison.
+has now replaced the inherited host and firmware orientation bodies with
+credited MIT Fusion adapters and validated a rebuilt configured firmware.
+Older Git revisions still have unresolved filter-origin and other historical
+distribution findings; they are not cleared by this Renode comparison.
