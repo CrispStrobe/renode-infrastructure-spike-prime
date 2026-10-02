@@ -23,5 +23,8 @@ and does not audit every Renode component's licensing or historical commit.
 Original third-party licences remain applicable. The separate firmware review
 has now replaced the inherited host and firmware orientation bodies with
 credited MIT Fusion adapters and validated a rebuilt configured firmware.
-Older Git revisions still have unresolved filter-origin and other historical
-distribution findings; they are not cleared by this Renode comparison.
+The approved firmware history cleanup now retires the old ancestry and 19
+non-main public branch refs. Those findings are resolved for advertised firmware
+branch/tag reachability, as recorded in its `policy/public-history-review.json`.
+Retired private archives remain uncleared; GitHub caches and other clones are
+outside that scope. This does not extend the scope of the Renode comparison.
