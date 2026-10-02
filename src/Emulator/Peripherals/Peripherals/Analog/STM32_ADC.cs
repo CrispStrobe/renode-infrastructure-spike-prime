@@ -13,6 +13,7 @@ using Antmicro.Renode.Core.Structure.Registers;
 using Antmicro.Renode.Exceptions;
 using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.Timers;
+using Antmicro.Renode.Peripherals.Bus;
 using Antmicro.Renode.Time;
 
 namespace Antmicro.Renode.Peripherals.Analog
@@ -32,12 +33,12 @@ namespace Antmicro.Renode.Peripherals.Analog
     // Not Implemented:
     // * Analog watchdog
     // * Overrun detection
-    // * External triggers
     // * Injected channels
     // * Sampling time (time is fixed)
     // * Discontinuous mode
     // * Multi-ADC (i.e. Dual/Triple) mode
-    public class STM32_ADC : BasicDoubleWordPeripheral, IKnownSize
+    [AllowedTranslations(AllowedTranslation.WordToDoubleWord)]
+    public class STM32_ADC : BasicDoubleWordPeripheral, IKnownSize, IGPIOReceiver
     {
         public STM32_ADC(IMachine machine) : base(machine)
         {
@@ -57,9 +58,25 @@ namespace Antmicro.Renode.Peripherals.Analog
             samplingTimer.LimitReached += OnConversionFinished;
         }
 
+        // GPIO input number is the CR2 EXTSEL value for the wired trigger.
+        public void OnGPIO(int number, bool value)
+        {
+            if(number < 0 || number > 15) throw new RecoverableException("ADC trigger selector must be 0-15");
+            var previous = triggerLevels[number];
+            triggerLevels[number] = value;
+            var mode = externalTriggerEdge.Value;
+            if(externalTriggerSelection.Value == (ulong)number && adcOn.Value && !samplingTimer.Enabled
+                && ((value && !previous && (mode == 1 || mode == 3))
+                    || (!value && previous && (mode == 2 || mode == 3))))
+            {
+                StartConversion();
+            }
+        }
+
         public override void Reset()
         {
             base.Reset();
+            System.Array.Clear(triggerLevels, 0, triggerLevels.Length);
             foreach(var c in channels)
             {
                 c.Reset();
@@ -165,8 +182,8 @@ namespace Antmicro.Renode.Peripherals.Analog
                .WithTag("External trigger enable for injected channels", 20, 2)
                .WithTaggedFlag("Start conversion of injected channels", 22)
                .WithReservedBits(23, 1)
-               .WithTag("External event select for regular group", 24, 4)
-               .WithTag("External trigger enable for regular channels", 28, 2)
+               .WithValueField(24, 4, out externalTriggerSelection, name: "External event select for regular group")
+               .WithValueField(28, 2, out externalTriggerEdge, name: "External trigger enable for regular channels")
                .WithFlag(30,
                      name: "Start Conversion Of Regular Channels",
                      writeCallback: (_, value) => { if(value) StartConversion(); },
@@ -324,6 +341,10 @@ namespace Antmicro.Renode.Peripherals.Analog
         private IFlagRegisterField endOfConversionSelect;
         private IFlagRegisterField eocInterruptEnable;
         private IFlagRegisterField continuousConversion;
+
+        private readonly bool[] triggerLevels = new bool[16];
+        private IValueRegisterField externalTriggerSelection;
+        private IValueRegisterField externalTriggerEdge;
 
         private IFlagRegisterField dmaEnabled;
         private IFlagRegisterField dmaIssueRequest;

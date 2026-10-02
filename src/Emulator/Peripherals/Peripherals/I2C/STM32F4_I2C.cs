@@ -67,6 +67,9 @@ namespace Antmicro.Renode.Peripherals.I2C
         public override void Reset()
         {
             state = State.Idle;
+            selectedSlave = null;
+            dataToTransfer = null;
+            dataToReceive = null;
             EventInterrupt.Unset();
             ErrorInterrupt.Unset();
 
@@ -159,6 +162,13 @@ namespace Antmicro.Renode.Peripherals.I2C
             if(dataToReceive != null && dataToReceive.Any())
             {
                 result = dataToReceive.Dequeue();
+                // A master receive is a stream, not a single-byte packet.
+                // Keep one byte available while ACK requests another byte;
+                // clearing ACK leaves the already received final byte to drain.
+                if(state == State.ReceivingData && acknowledgeEnable.Value)
+                {
+                    foreach(var value in selectedSlave.Read(1)) dataToReceive.Enqueue(value);
+                }
             }
             else
             {
@@ -192,7 +202,8 @@ namespace Antmicro.Renode.Peripherals.I2C
 
                     if(willReadOnSelectedSlave)
                     {
-                        dataToReceive = new Queue<byte>(selectedSlave.Read());
+                        state = State.ReceivingData;
+                        dataToReceive = new Queue<byte>(selectedSlave.Read(1));
                         byteTransferFinished.Value = true;
                     }
                     else
@@ -281,6 +292,7 @@ namespace Antmicro.Renode.Peripherals.I2C
                 switch(state)
                 {
                 case State.Idle:
+                case State.ReceivingData:
                 case State.AwaitingData: //HACK! Should not be here, forced by ExecuteIn somehow.
                     state = State.AwaitingAddress;
                     masterSlave.Value = true;
@@ -338,6 +350,7 @@ namespace Antmicro.Renode.Peripherals.I2C
             Idle,
             AwaitingAddress,
             AwaitingData,
+            ReceivingData,
         }
     }
 }

@@ -41,10 +41,11 @@ namespace Antmicro.Renode.Peripherals.SPI
         {
             if(number == GrayscaleClockGPIO)
             {
+                if(grayscaleClockSynchronizer != null) throw new InvalidOperationException("TLC5955 cannot mix analytical and GPIO GSCLK sources");
                 if(!grayscaleClock && value)
                 {
-                    GrayscaleClockEdges++;
-                    GrayscalePhase = (GrayscalePhase + 1) & 0xFFFF;
+                    grayscaleClockEdges++;
+                    grayscalePhase = (grayscalePhase + 1) & 0xFFFF;
                 }
                 grayscaleClock = value;
                 return;
@@ -54,6 +55,7 @@ namespace Antmicro.Renode.Peripherals.SPI
                 return;
             }
 
+            grayscaleClockSynchronizer?.Invoke();
             if(latch && !value)
             {
                 Array.Copy(shiftRegister, latchedRegister, FrameSize);
@@ -65,6 +67,7 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         public void Reset()
         {
+            grayscaleClockSynchronizer?.Invoke();
             Array.Clear(shiftRegister, 0, shiftRegister.Length);
             Array.Clear(latchedRegister, 0, latchedRegister.Length);
             latch = false;
@@ -72,8 +75,8 @@ namespace Antmicro.Renode.Peripherals.SPI
             LatchedFrames = 0;
             Array.Clear(channels, 0, channels.Length);
             grayscaleClock = false;
-            GrayscaleClockEdges = 0;
-            GrayscalePhase = 0;
+            grayscaleClockEdges = 0;
+            grayscalePhase = 0;
         }
 
         public byte[] ShiftRegister => (byte[])shiftRegister.Clone();
@@ -90,9 +93,35 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         public ushort[] Matrix => MatrixChannels.Select(channel => channels[channel]).ToArray();
 
-        public ulong GrayscaleClockEdges { get; private set; }
+        // SPDX-License-Identifier: BSD-3-Clause
+        // Aggregate-clock additions Copyright (c) 2026 Brickwright contributors.
+        // Edges include all transitions already accounted for by the source;
+        // the final level must not add another rising edge.
+        public void ObserveGrayscaleClock(ulong risingEdges, bool finalLevel)
+        {
+            grayscaleClockEdges += risingEdges;
+            grayscalePhase = (grayscalePhase + (int)(risingEdges & 0xFFFF)) & 0xFFFF;
+            grayscaleClock = finalLevel;
+        }
 
-        public int GrayscalePhase { get; private set; }
+        public void SetGrayscaleClockSynchronizer(Action synchronizer)
+        {
+            if(grayscaleClockSynchronizer != null && synchronizer != grayscaleClockSynchronizer)
+            {
+                throw new InvalidOperationException("TLC5955 already has an analytical GSCLK source");
+            }
+            grayscaleClockSynchronizer = synchronizer;
+        }
+
+        public ulong GrayscaleClockEdges
+        {
+            get { grayscaleClockSynchronizer?.Invoke(); return grayscaleClockEdges; }
+        }
+
+        public int GrayscalePhase
+        {
+            get { grayscaleClockSynchronizer?.Invoke(); return grayscalePhase; }
+        }
 
         public const int FrameSize = 97;
         public const int LatchGPIO = 0;
@@ -122,5 +151,8 @@ namespace Antmicro.Renode.Peripherals.SPI
         private readonly ushort[] channels = new ushort[48];
         private bool latch;
         private bool grayscaleClock;
+        private ulong grayscaleClockEdges;
+        private int grayscalePhase;
+        private Action grayscaleClockSynchronizer;
     }
 }

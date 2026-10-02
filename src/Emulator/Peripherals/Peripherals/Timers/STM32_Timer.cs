@@ -309,19 +309,19 @@ namespace Antmicro.Renode.Peripherals.Timers
                 },
                 {(long)Registers.CaptureOrCompareEnable, new DoubleWordRegister(this)
                     .WithFlag(0, valueProviderCallback: _ => ccOutputEnable[0], writeCallback: (_, val) => WriteCaptureCompareOutputEnable(0, val), name: "Capture/Compare 1 enable (CC1E)")
-                    .WithTaggedFlag("CC1P", 1)
+                    .WithFlag(1, name: "CC1P")
                     .WithTaggedFlag("CC1NE", 2)
                     .WithTaggedFlag("CC1NP", 3)
                     .WithFlag(4, valueProviderCallback: _ => ccOutputEnable[1], writeCallback: (_, val) => WriteCaptureCompareOutputEnable(1, val), name: "Capture/Compare 2 enable (CC2E)")
-                    .WithTaggedFlag("CC2P", 5)
+                    .WithFlag(5, name: "CC2P")
                     .WithTaggedFlag("CC2NE", 6)
                     .WithTaggedFlag("CC2NP", 7)
                     .WithFlag(8, valueProviderCallback: _ => ccOutputEnable[2], writeCallback: (_, val) => WriteCaptureCompareOutputEnable(2, val), name: "Capture/Compare 3 enable (CC3E)")
-                    .WithTaggedFlag("CC3P", 9)
+                    .WithFlag(9, name: "CC3P")
                     .WithTaggedFlag("CC3NE", 10)
                     .WithTaggedFlag("CC3NP", 11)
                     .WithFlag(12, valueProviderCallback: _ => ccOutputEnable[3], writeCallback: (_, val) => WriteCaptureCompareOutputEnable(3, val), name: "Capture/Compare 4 enable (CC4E)")
-                    .WithTaggedFlag("CC4P", 13)
+                    .WithFlag(13, name: "CC4P")
                     .WithReservedBits(14, 18)
                 },
                 {(long)Registers.Counter, new DoubleWordRegister(this)
@@ -385,7 +385,7 @@ namespace Antmicro.Renode.Peripherals.Timers
                     .WithTaggedFlag("Break enable (BKE)", 12)
                     .WithTaggedFlag("Break polarity (BKP)", 13)
                     .WithTaggedFlag("Automatic output enable (AOE)", 14)
-                    .WithTaggedFlag("Main Output Enable (MOE)", 15)
+                    .WithFlag(15, name: "Main Output Enable (MOE)")
                     .WithReservedBits(16, 16)
                 },
             };
