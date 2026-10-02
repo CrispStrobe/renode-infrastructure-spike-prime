@@ -10,6 +10,7 @@ using System.Linq;
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Core.Structure.Registers;
 using Antmicro.Renode.Logging;
+using Antmicro.Renode.Time;
 
 namespace Antmicro.Renode.Peripherals.DMA
 {
@@ -157,6 +158,8 @@ namespace Antmicro.Renode.Peripherals.DMA
 
             public void Reset()
             {
+                transferGeneration++;
+                continuationScheduled = false;
                 dataOffset = 0;
                 initialNrOfData = 0;
                 pendingPeripheralRequest = false;
@@ -259,6 +262,12 @@ namespace Antmicro.Renode.Peripherals.DMA
 
             private void HandleEnable(bool value)
             {
+                if(!value)
+                {
+                    transferGeneration++;
+                    continuationScheduled = false;
+                    return;
+                }
                 if(value && direction.Value == Direction.MemoryToMemory)
                 {
                     PerformTransfer();
@@ -276,6 +285,59 @@ namespace Antmicro.Renode.Peripherals.DMA
 
             private void PerformTransfer()
             {
+                if(transferInProgress)
+                {
+                    // A peripheral write can synchronously request the next unit.
+                    // Defer that request until IssueCopy has returned.
+                    pendingPeripheralRequest = true;
+                    return;
+                }
+
+                var generation = transferGeneration;
+                // A circular peripheral can keep requesting forever. Yield after
+                // at most one programmed buffer rather than monopolizing the host.
+                var remainingRequests = System.Math.Max(1UL, initialNrOfData);
+                transferInProgress = true;
+                try
+                {
+                    do
+                    {
+                        pendingPeripheralRequest = false;
+                        PerformTransferUnit(generation);
+                        remainingRequests--;
+                    }
+                    while(generation == transferGeneration && isEnabled.Value
+                        && pendingPeripheralRequest && nrOfData.Value != 0
+                        && remainingRequests != 0);
+                }
+                finally
+                {
+                    transferInProgress = false;
+                }
+
+                if(generation == transferGeneration && isEnabled.Value
+                    && pendingPeripheralRequest && nrOfData.Value != 0
+                    && !continuationScheduled)
+                {
+                    continuationScheduled = true;
+                    // This yields work, without claiming cycle-accurate DMA timing.
+                    parent.machine.ScheduleAction(TimeInterval.FromMicroseconds(1), _ =>
+                    {
+                        if(generation != transferGeneration)
+                        {
+                            return;
+                        }
+                        continuationScheduled = false;
+                        if(isEnabled.Value && pendingPeripheralRequest)
+                        {
+                            PerformTransfer();
+                        }
+                    });
+                }
+            }
+
+            private void PerformTransferUnit(ulong generation)
+            {
                 if(CreateRequest() is Request request)
                 {
                     var dataUnitSize = direction.Value == Direction.PeripheralToMemory ?
@@ -286,7 +348,7 @@ namespace Antmicro.Renode.Peripherals.DMA
                     dataOffset += (ulong)request.Size;
                     parent.engine.IssueCopy(request);
 
-                    if(nrOfData.Value == 0)
+                    if(generation == transferGeneration && isEnabled.Value && nrOfData.Value == 0)
                     {
                         parent.transferCompleteIrqStatus[id].Value = true;
                         dataOffset = 0;
@@ -431,6 +493,9 @@ namespace Antmicro.Renode.Peripherals.DMA
             private ulong dataOffset;
             private ulong initialNrOfData;
             private bool pendingPeripheralRequest;
+            private bool transferInProgress;
+            private bool continuationScheduled;
+            private ulong transferGeneration;
 
             private readonly STM32DMA parent;
             private readonly int id;
