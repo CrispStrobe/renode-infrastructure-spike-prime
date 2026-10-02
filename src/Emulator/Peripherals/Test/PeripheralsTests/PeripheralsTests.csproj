@@ -76,6 +76,8 @@
     <Compile Include="ST7586Tests.cs" />
     <Compile Include="PrimeButtonLadderTests.cs" />
     <Compile Include="STM32TimerBoardClockTests.cs" />
+    <Compile Include="STM32TimerSoftwareEventTests.cs" />
+    <Compile Include="STM32TimerRolloverTests.cs" />
     <Compile Include="LegoLpf2PortTests.cs" />
     <Compile Include="EFR32_I2CControllerTests.cs" />
     <Compile Include="FT5336Test.cs" />
