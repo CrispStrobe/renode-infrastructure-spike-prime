@@ -63,7 +63,7 @@ namespace Antmicro.Renode.Peripherals.Timers
                     // A zero compare cannot use a zero-period LimitTimer.
                     // In up-counting mode CNT reaches zero on rollover, so
                     // an enabled zero compare must still latch CCxIF there.
-                    if(Direction == Direction.Ascending && ccTimers[i].Limit == 0 && ccInterruptEnable[i])
+                    if(Direction == Direction.Ascending && ccTimers[i].Limit == 0 && IsInterruptOrOutputEnabled(i))
                     {
                         ccInterruptFlag[i] = true;
                     }
@@ -127,12 +127,9 @@ namespace Antmicro.Renode.Peripherals.Timers
                         break;
                     }
 
-                    if(ccInterruptEnable[j])
-                    {
-                        ccInterruptFlag[j] = true;
-                        this.Log(LogLevel.Noisy, "cctimer{0}: Compare IRQ pending", j + 1);
-                        UpdateInterrupts();
-                    }
+                    ccInterruptFlag[j] = true;
+                    this.Log(LogLevel.Noisy, "cctimer{0}: Compare flag pending", j + 1);
+                    UpdateInterrupts();
                 };
             }
 
@@ -235,7 +232,7 @@ namespace Antmicro.Renode.Peripherals.Timers
                 {(long)Registers.EventGeneration, new DoubleWordRegister(this)
                     .WithFlag(0, FieldMode.WriteOneToClear, writeCallback: (_, val) =>
                     {
-                        if(updateDisable.Value)
+                        if(!val || updateDisable.Value)
                         {
                             return;
                         }
@@ -265,10 +262,34 @@ namespace Antmicro.Renode.Peripherals.Timers
                             }
                         }
                     }, name: "Update generation (UG)")
-                    .WithTag("Capture/compare 1 generation (CC1G)", 1, 1)
-                    .WithTag("Capture/compare 2 generation (CC2G)", 2, 1)
-                    .WithTag("Capture/compare 3 generation (CC3G)", 3, 1)
-                    .WithTag("Capture/compare 4 generation (CC4G)", 4, 1)
+                    .WithFlag(1, FieldMode.Write, writeCallback: (_, val) =>
+                    {
+                        if(val)
+                        {
+                            GenerateCaptureCompareEvent(0);
+                        }
+                    }, name: "Capture/compare 1 generation (CC1G)")
+                    .WithFlag(2, FieldMode.Write, writeCallback: (_, val) =>
+                    {
+                        if(val)
+                        {
+                            GenerateCaptureCompareEvent(1);
+                        }
+                    }, name: "Capture/compare 2 generation (CC2G)")
+                    .WithFlag(3, FieldMode.Write, writeCallback: (_, val) =>
+                    {
+                        if(val)
+                        {
+                            GenerateCaptureCompareEvent(2);
+                        }
+                    }, name: "Capture/compare 3 generation (CC3G)")
+                    .WithFlag(4, FieldMode.Write, writeCallback: (_, val) =>
+                    {
+                        if(val)
+                        {
+                            GenerateCaptureCompareEvent(3);
+                        }
+                    }, name: "Capture/compare 4 generation (CC4G)")
                     .WithTaggedFlag("Capture/compare update generation (COMG)", 5)
                     .WithTag("Trigger generation (TG)", 6, 1)
                     .WithReservedBits(7, 25)
@@ -559,6 +580,15 @@ namespace Antmicro.Renode.Peripherals.Timers
                 Connections[i].Set();
                 break;
             }
+        }
+
+        private void GenerateCaptureCompareEvent(int i)
+        {
+            // In the output compare mode supported by this peripheral, CCxG
+            // sets CCxIF independently of CCxIE, CCxE or the counter enable.
+            // Unlike UG, it does not reset CNT or change CCRx. Input capture
+            // (including software capture into CCRx) remains unsupported.
+            ccInterruptFlag[i] = true;
         }
 
         private void ClaimCaptureCompareInterrupt(int i, bool value)
