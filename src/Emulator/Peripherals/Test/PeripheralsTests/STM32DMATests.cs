@@ -41,10 +41,16 @@ namespace Antmicro.Renode.PeripheralsTests
         }
 
         [Test]
-        public void ShouldClampFifoRequestToRemainingDataAndCompleteNormalTransfer()
+        public void ShouldPaceFifoReceiveRequestsAndCompleteNormalTransfer()
         {
             ConfigurePeripheralToMemory(numberOfData: 3, circular: false, fifoEnabled: true);
 
+            dma.OnGPIO(0, true);
+            Assert.AreEqual(2, ReadNumberOfData());
+            Assert.True(IsStreamEnabled());
+            Assert.AreEqual(0, destination.ReadByte(0));
+            dma.OnGPIO(0, true);
+            Assert.AreEqual(1, ReadNumberOfData());
             dma.OnGPIO(0, true);
 
             CollectionAssert.AreEqual(new byte[] { 0, 1, 2 }, destination.ReadBytes(0, 3));
