@@ -87,6 +87,10 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         public ulong LatchedFrames { get; private set; }
 
+        // Source/reference: Pybricks lib/pbio/platform/prime_hub/platform.c
+        // at 101c6babb592148bda9a8fd912b7953c7d561c0a (MIT).
+        // Copyright (c) 2019-2023 The Pybricks Authors
+        // Original notice retained for referenced platform mapping.
         // Channel order follows the MIT-licensed Pybricks Prime platform data:
         // bytes 1..96 contain channels 0..47 as big-endian 16-bit values.
         public ushort[] Channels => (ushort[])channels.Clone();

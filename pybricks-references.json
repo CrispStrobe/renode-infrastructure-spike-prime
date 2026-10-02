@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/pybricks/pybricks-micropython",
+  "commit": "101c6babb592148bda9a8fd912b7953c7d561c0a",
+  "inputs": [
+    {
+      "path": "src/Emulator/Peripherals/Peripherals/UART/Lpf2Devices.cs",
+      "sha256": "7babb05dd48ea03a8a96246e6bebe398f8da1d74ad0828da403a3a61cf8cd5ad",
+      "upstream_path": "lib/pbio/test/src/test_uartdev.c",
+      "upstream_sha256": "27450c688f62200144a2d3f89f785998fef22d39011e4e86c68814a0a5aca65e",
+      "licence": "MIT",
+      "relationship": "Copied 530-byte prefix of concatenated discovery messages from test_technic_large_motor; byte-for-byte verified."
+    },
+    {
+      "path": "src/Emulator/Peripherals/Peripherals/SPI/TLC5955.cs",
+      "sha256": "8fd3f159744db52557fa0d5ba334a4ea5c66635fa3a77f506ebc10b4b29ca452",
+      "upstream_path": "lib/pbio/platform/prime_hub/platform.c",
+      "upstream_sha256": "8532fbe71b1603227230b043d6c8ce6d4da4035af8102b7ce8480cf3d1aa704d",
+      "licence": "MIT",
+      "relationship": "Platform/display reference; original notice retained conservatively, no claim that the whole model was copied."
+    }
+  ],
+  "fixture_sha256": "60d71498e4cb6cf9477855a3ff071e908445d20699b4bd8ba30016461feb8105",
+  "scope": "Inventory for SPIKE model additions, not the complete Renode infrastructure or its LGPL/other dependencies.",
+  "notice_sha256": "7122ec4cd04330043b642cbc6fda462d797cb2fad3dc73fd394d147d565df841"
+}
