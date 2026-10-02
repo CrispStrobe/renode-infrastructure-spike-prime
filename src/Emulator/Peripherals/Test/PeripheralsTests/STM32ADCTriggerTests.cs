@@ -16,6 +16,8 @@ namespace Antmicro.Renode.PeripheralsTests
         [Test]
         public void ShouldSelectEdgesAndScanIdleButtonThroughHalfwordDataReads()
         {
+            // Other peripheral fixtures may leave disposed machines in the global emulation.
+            EmulationManager.Instance.Clear();
             using(var machine=new Machine())
             {
                 var emulation=EmulationManager.Instance.CurrentEmulation;
