@@ -1,5 +1,6 @@
 //
 // Copyright (c) 2010-2026 Antmicro
+// Copyright (c) 2026 Brickwright contributors
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -59,6 +60,13 @@ namespace Antmicro.Renode.Peripherals.Timers
 
                 for(var i = 0; i < NumberOfCCChannels; ++i)
                 {
+                    // A zero compare cannot use a zero-period LimitTimer.
+                    // In up-counting mode CNT reaches zero on rollover, so
+                    // an enabled zero compare must still latch CCxIF there.
+                    if(Direction == Direction.Ascending && ccTimers[i].Limit == 0 && ccInterruptEnable[i])
+                    {
+                        ccInterruptFlag[i] = true;
+                    }
                     UpdateCaptureCompareTimer(i);
                     if(!ccTimers[i].Enabled)
                     {
@@ -83,13 +91,14 @@ namespace Antmicro.Renode.Peripherals.Timers
                     this.Log(LogLevel.Noisy, "IRQ pending");
                     updateInterruptFlag = true;
                     repetitionsLeft = 1u + (uint)repetitionCounter.Value * (centerAlignedUnbalancedMode ? 2u : 1u);
-                    UpdateInterrupts();
                 }
 
                 if(repetitionsLeft > 0)
                 {
                     repetitionsLeft--;
                 }
+                // Expose all flags due at rollover before asserting IRQ.
+                UpdateInterrupts();
             };
 
             for(var i = 0; i < NumberOfCCChannels; ++i)
