@@ -23,7 +23,7 @@ namespace Antmicro.Renode.Peripherals.Timers
     [AllowedTranslations(AllowedTranslation.ByteToDoubleWord | AllowedTranslation.WordToDoubleWord)]
     public class STM32_Timer : LimitTimer, IDoubleWordPeripheral, IKnownSize, INumberedGPIOOutput, IRegisterablePeripheral<IGPIOReceiver, NumberRegistrationPoint<int>>, IRegisterablePeripheral<IGPIOReceiver, NullRegistrationPoint>, IGPIOReceiver
     {
-        public STM32_Timer(IMachine machine, ulong frequency, uint initialLimit) : base(machine.ClockSource, frequency, limit: initialLimit, direction: Direction.Ascending, enabled: false, eventEnabled: true, autoUpdate: false)
+        public STM32_Timer(IMachine machine, ulong frequency, uint initialLimit) : base(machine.ClockSource, frequency, limit: (ulong)initialLimit + 1UL, direction: Direction.Ascending, enabled: false, eventEnabled: true, autoUpdate: false)
         {
             this.machine = machine;
             sysbus = machine.GetSystemBus(this);
@@ -56,7 +56,8 @@ namespace Antmicro.Renode.Peripherals.Timers
                     enableRequested = false;
                 }
 
-                Limit = autoReloadValue;
+                activeAutoReloadValue = autoReloadValue;
+                Limit = CounterPeriod;
 
                 for(var i = 0; i < NumberOfCCChannels; ++i)
                 {
@@ -144,12 +145,12 @@ namespace Antmicro.Renode.Peripherals.Timers
                     .WithFlag(1, out updateDisable, name: "Update disable (UDIS)")
                     .WithFlag(2, out updateRequestSource, name: "Update request source (URS)")
                     .WithFlag(3, writeCallback: (_, val) => Mode = val ? WorkMode.OneShot : WorkMode.Periodic, valueProviderCallback: _ => Mode == WorkMode.OneShot, name: "One-pulse mode (OPM)")
-                    .WithFlag(4, writeCallback: (_, val) => Direction = val ? Direction.Descending : Direction.Ascending, valueProviderCallback: _ => Direction == Direction.Descending, name: "Direction (DIR)")
+                    .WithFlag(4, writeCallback: (_, val) => { Direction = val ? Direction.Descending : Direction.Ascending; Limit = CounterPeriod; }, valueProviderCallback: _ => Direction == Direction.Descending, name: "Direction (DIR)")
                     .WithEnumField(5, 2, out centerAlignedMode, name: "Center-aligned mode selection (CMS)")
                     .WithFlag(7, out autoReloadPreloadEnable, name: "Auto-reload preload enable (APRE)")
                     .WithTag("Clock Division (CKD)", 8, 2)
                     .WithReservedBits(10, 22)
-                    .WithWriteCallback((_, __) => { UpdateCaptureCompareTimers(); UpdateInterrupts(); })
+                    .WithWriteCallback((_, __) => { Limit = CounterPeriod; UpdateCaptureCompareTimers(); UpdateInterrupts(); })
                 },
                 {(long)Registers.Control2, new DoubleWordRegister(this)
                     .WithTaggedFlag("CCPC", 0)
@@ -397,7 +398,8 @@ namespace Antmicro.Renode.Peripherals.Timers
                         Enabled = enableRequested && autoReloadValue > 0;
                         if(!autoReloadPreloadEnable.Value)
                         {
-                            Limit = autoReloadValue;
+                            activeAutoReloadValue = autoReloadValue;
+                            Limit = CounterPeriod;
                         }
                     }, valueProviderCallback: _ => autoReloadValue, name: "Auto-reload value (ARR)")
                     .WithReservedBits(timerCounterLengthInBits, 32 - timerCounterLengthInBits)
@@ -480,7 +482,8 @@ namespace Antmicro.Renode.Peripherals.Timers
             registers.Reset();
             autoReloadValue = initialLimit;
             enableRequested = false;
-            Limit = initialLimit;
+            activeAutoReloadValue = initialLimit;
+            Limit = (ulong)initialLimit + 1UL;
             repetitionsLeft = 0;
             updateInterruptFlag = false;
             for(var i = 0; i < NumberOfCCChannels; ++i)
@@ -516,6 +519,11 @@ namespace Antmicro.Renode.Peripherals.Timers
         public IReadOnlyDictionary<int, IGPIO> Connections => connections;
 
         public long Size => 0x400;
+
+        // Ascending edge-aligned CNT visits ARR before wrapping. Widen before
+        // adding one so a 32-bit ARR also has the correct period. Descending
+        // and center-aligned modes retain their existing counting behavior.
+        private ulong CounterPeriod => Direction == Direction.Ascending && (centerAlignedMode == null || centerAlignedMode.Value == CenterAlignedMode.EdgeAligned) ? (ulong)activeAutoReloadValue + 1UL : activeAutoReloadValue;
 
         private void UpdateCaptureCompareTimer(int i)
         {
@@ -631,6 +639,8 @@ namespace Antmicro.Renode.Peripherals.Timers
         }
 
         private uint autoReloadValue;
+        // Active ARR remains separate from its preloaded register value.
+        private uint activeAutoReloadValue;
         private uint repetitionsLeft;
         private bool updateInterruptFlag;
         private bool enableRequested;
