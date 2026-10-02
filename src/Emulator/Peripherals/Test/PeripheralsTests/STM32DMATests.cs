@@ -143,6 +143,28 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.False(IsStreamEnabled());
         }
 
+        [Test]
+        public void ShouldMaskAndUnmaskLatchedTransferCompleteInterrupt()
+        {
+            ConfigurePeripheralToMemory(numberOfData: 1, circular: false, fifoEnabled: false);
+            dma.OnGPIO(0, true);
+            Assert.True(IsTransferComplete());
+            Assert.True(dma.Connections[0].IsSet);
+
+            dma.WriteDoubleWord(StreamConfiguration, MemoryIncrement);
+            Assert.True(IsTransferComplete(), "masking must preserve the status flag");
+            Assert.False(dma.Connections[0].IsSet, "masking TCIE must release the IRQ line");
+
+            dma.WriteDoubleWord(StreamConfiguration, MemoryIncrement | TransferCompleteInterruptEnable);
+            Assert.True(dma.Connections[0].IsSet, "unmasking a pending flag must assert IRQ");
+            dma.WriteDoubleWord(LowInterruptClear, 0);
+            Assert.True(IsTransferComplete(), "writing zero must preserve TCIF");
+            Assert.True(dma.Connections[0].IsSet);
+            dma.WriteDoubleWord(LowInterruptClear, TransferCompleteFlag);
+            Assert.False(IsTransferComplete());
+            Assert.False(dma.Connections[0].IsSet);
+        }
+
         private void ConfigurePeripheralToMemory(uint numberOfData, bool circular, bool fifoEnabled)
         {
             dma.WriteDoubleWord(StreamPeripheralAddress, SourceAddress);

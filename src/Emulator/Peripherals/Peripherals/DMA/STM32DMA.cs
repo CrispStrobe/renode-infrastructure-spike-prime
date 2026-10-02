@@ -228,7 +228,11 @@ namespace Antmicro.Renode.Peripherals.DMA
                     .WithTaggedFlag("TRBUFF", 20)
                     .WithTag("PBURST", 21, 2)
                     .WithTag("MBURST", 23, 2)
-                    .WithReservedBits(25, 7);
+                    .WithReservedBits(25, 7)
+                    // TCIF remains latched while TCIE is masked. Recompute
+                    // the line after all stream fields have been written so
+                    // masking and unmasking also affect an existing flag.
+                    .WithWriteCallback((_, __) => parent.UpdateInterrupts());
 
                 (Registers.StreamNumberOfData + streamOffset).Define(parent)
                     .WithValueField(0, 16, out nrOfData, name: "NDT",
