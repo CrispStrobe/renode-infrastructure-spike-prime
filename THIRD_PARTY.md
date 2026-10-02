@@ -20,3 +20,8 @@ licences under `licenses/` and individual file notices.
 
 Run `python3 tools/check_pybricks_references.py` before publishing changes
 to the inventoried model code.
+
+A [broader current-tree Pybricks comparison](SOURCE_ORIGIN_REVIEW.md) covered
+tests and supporting files as well as these two additions. It identified no
+additional uncredited Pybricks implementation, within its stated thresholds
+and scope; it is not a whole-Renode licensing clearance.
