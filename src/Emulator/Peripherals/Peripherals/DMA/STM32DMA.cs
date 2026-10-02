@@ -167,6 +167,10 @@ namespace Antmicro.Renode.Peripherals.DMA
             {
                 if(!value)
                 {
+                    if(direction.Value == Direction.PeripheralToMemory)
+                    {
+                        pendingPeripheralRequest = false;
+                    }
                     return;
                 }
 
@@ -384,7 +388,10 @@ namespace Antmicro.Renode.Peripherals.DMA
                     requestedSize = PeripheralDataSizeInBytes;
                     break;
                 case Direction.PeripheralToMemory:
-                    requestedSize = directMode.Value ? FIFOThresholdInBytes : PeripheralDataSizeInBytes;
+                    // FIFO threshold governs memory-side buffering; it does
+                    // not authorize extra reads of a peripheral data register.
+                    // Each request supplies exactly one peripheral data unit.
+                    requestedSize = PeripheralDataSizeInBytes;
                     break;
                 default:
                     parent.WarningLog("Trying to get transfer size for Reserved DataSize. Defaulting to 0.");

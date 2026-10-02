@@ -134,13 +134,6 @@ namespace Antmicro.Renode.Peripherals.SPI
                 }
                 var response = peripheral.Transmit((byte)value); // currently byte mode is the only one we support
                 receiveBuffer.Enqueue(response);
-                if(rxDmaEnable.Value)
-                {
-                    // This blink is used to signal the DMA that it should perform the peripheral -> memory transaction now
-                    // Without this signal DMA will never move data from the receive buffer to memory
-                    // See STM32DMA:OnGPIO
-                    DMARecieve.Blink();
-                }
                 this.NoisyLog("Transmitted 0x{0:X}, received 0x{1:X}.", value, response);
             }
             Update();
@@ -156,7 +149,11 @@ namespace Antmicro.Renode.Peripherals.SPI
                 // DMA write can synchronously reach this method while the prior
                 // pulse is still asserted, so release it before retriggering.
                 DMATransmit.Unset();
-                DMATransmit.Blink();
+                DMATransmit.Set();
+            }
+            else
+            {
+                DMATransmit.Unset();
             }
         }
 
@@ -166,6 +163,10 @@ namespace Antmicro.Renode.Peripherals.SPI
             var rxBufferNotEmptyInterruptFlag = rxBufferNotEmpty && rxBufferNotEmptyInterruptEnable.Value;
 
             IRQ.Set(txBufferEmptyInterruptEnable.Value || rxBufferNotEmptyInterruptFlag);
+            // A CPU read can consume RXNE while DMA is disabled. Withdraw the
+            // request when the buffer drains, rather than remembering a pulse
+            // for a byte that no longer exists.
+            DMAReceive.Set(spiEnable.Value && rxDmaEnable.Value && rxBufferNotEmpty);
         }
 
         private void SetupRegisters()
@@ -191,10 +192,7 @@ namespace Antmicro.Renode.Peripherals.SPI
                     {
                         IRQ.Unset();
                     }
-                    else
-                    {
-                        RequestTransmitDMA();
-                    }
+                    RequestTransmitDMA();
                 }, name: "SpiEnable")
                 .WithFlag(7, name: "LSBFIRST") // Physical
                                                // We keep these as flags to preserve written values. SSI flag is used by drivers to select/detect operation mode (Master or Slave)
@@ -211,10 +209,7 @@ namespace Antmicro.Renode.Peripherals.SPI
                 .WithFlag(0, out rxDmaEnable, name: "RXDMAEN")
                 .WithFlag(1, out txDmaEnable, changeCallback: (_, value) =>
                 {
-                    if(value)
-                    {
-                        RequestTransmitDMA();
-                    }
+                    RequestTransmitDMA();
                 }, name: "TXDMAEN")
                 .WithTaggedFlag("SSOE", 2)
                 .WithReservedBits(3, 1)
