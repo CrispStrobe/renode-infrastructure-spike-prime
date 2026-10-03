@@ -14,6 +14,39 @@ namespace Antmicro.Renode.PeripheralsTests
     public class STM32ADCTriggerTests
     {
         [Test]
+        public void ShouldCancelPendingConversionAndRestoreSingleRankOnReset()
+        {
+            EmulationManager.Instance.Clear();
+            using(var machine=new Machine())
+            {
+                var emulation=EmulationManager.Instance.CurrentEmulation;
+                emulation.AddMachine(machine);
+                try
+                {
+                    var adc=new STM32_ADC(machine);
+                    adc.SetChannelValue(0,17);adc.SetChannelValue(10,1234);
+                    adc.WriteDoubleWord(0x2c,1u<<20);
+                    adc.WriteDoubleWord(0x34,10u|(10u<<5));
+                    adc.WriteDoubleWord(4,1u<<8);
+                    adc.WriteDoubleWord(8,1u|(6u<<24)|(1u<<28));
+                    adc.OnGPIO(6,true);
+                    adc.Reset();
+                    Advance(machine,1000000);
+                    Assert.AreEqual(0u,adc.ReadDoubleWord(0x4c));
+                    Assert.IsFalse(adc.IRQ.IsSet);
+                    Assert.IsFalse(adc.DMARequest.IsSet);
+                    // The reset SQR1 L=0 means one conversion, without writes
+                    // to sequence registers. Persistent analog inputs remain.
+                    adc.WriteDoubleWord(8,1u|(6u<<24)|(1u<<28));
+                    adc.OnGPIO(6,true);
+                    Advance(machine,100000);
+                    Assert.AreEqual(17u,adc.ReadDoubleWord(0x4c));
+                }
+                finally {emulation.RemoveMachine(machine);}
+            }
+        }
+
+        [Test]
         public void ShouldUseSequenceWrittenAfterEnablingADC()
         {
             EmulationManager.Instance.Clear();
