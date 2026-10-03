@@ -1,23 +1,33 @@
 //
 // Copyright (c) 2010-2024 Antmicro
 // Copyright (c) 2011-2015 Realtime Embedded
+// Copyright (c) 2026 Brickwright contributors
 //
-// This file is licensed under the MIT License.
-// Full license text is available in 'licenses/MIT.txt'.
+// SPDX-License-Identifier: MIT AND BSD-3-Clause
+// Retained Renode code is licensed under MIT ('licenses/MIT.txt').
+// Brickwright receive-readiness and optional timing additions are licensed
+// under BSD-3-Clause ('licenses/BSD-3-Clause.txt').
 //
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Core.Structure;
 using Antmicro.Renode.Core.Structure.Registers;
 using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.Bus;
+using Antmicro.Renode.Time;
 using Antmicro.Renode.Utilities.Collections;
 
 namespace Antmicro.Renode.Peripherals.SPI
 {
     public sealed class STM32SPI : NullRegistrationPointPeripheralContainer<ISPIPeripheral>, IWordPeripheral, IDoubleWordPeripheral, IBytePeripheral, IKnownSize
     {
-        public STM32SPI(IMachine machine, int bufferCapacity = DefaultBufferCapacity) : base(machine)
+        // A zero input clock retains instantaneous byte transfers. A positive
+        // clock opts into simulated wire pacing, rounded up to nanoseconds.
+        // This remains a byte-only model with a receive queue defaulting to
+        // four bytes; it does not emulate all silicon timing or overflow flags.
+        public STM32SPI(IMachine machine, int bufferCapacity = DefaultBufferCapacity, ulong frequency = 0) : base(machine)
         {
+            this.machine = machine;
+            this.frequency = frequency;
             receiveBuffer = new CircularBuffer<byte>(bufferCapacity);
             IRQ = new GPIO();
             DMAReceive = new GPIO();
@@ -75,6 +85,7 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         public override void Reset()
         {
+            CancelTransmission();
             IRQ.Unset();
             DMAReceive.Unset();
             DMATransmit.Unset();
@@ -127,6 +138,25 @@ namespace Antmicro.Renode.Peripherals.SPI
         private void HandleDataWrite(uint value)
         {
             IRQ.Unset();
+            if(frequency != 0)
+            {
+                if(!spiEnable.Value || holdingByte.HasValue)
+                {
+                    this.Log(LogLevel.Warning, "SPI data write while disabled or transmit holding register occupied.");
+                    return;
+                }
+                if(isShifting)
+                {
+                    holdingByte = (byte)value;
+                }
+                else
+                {
+                    StartTransmission((byte)value);
+                }
+                Update();
+                RequestTransmitDMA();
+                return;
+            }
             lock(receiveBuffer)
             {
                 var peripheral = RegisteredPeripheral;
@@ -146,10 +176,10 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         private void RequestTransmitDMA()
         {
-            if(spiEnable.Value && txDmaEnable.Value)
+            if(spiEnable.Value && txDmaEnable.Value && !holdingByte.HasValue)
             {
-                // TXE is always set because transfers are instantaneous. Signal
-                // that the data register can accept the next DMA data unit. A
+                // Signal that the holding register can accept a DMA data unit.
+                // In instantaneous mode it is always available. A
                 // DMA write can synchronously reach this method while the prior
                 // pulse is still asserted, so release it before retriggering.
                 DMATransmit.Unset();
@@ -161,12 +191,61 @@ namespace Antmicro.Renode.Peripherals.SPI
             }
         }
 
+        private void StartTransmission(byte value)
+        {
+            isShifting = true;
+            var generation = transmissionGeneration;
+            // Eight bits at frequency / (2 << BR). The largest numerator
+            // fits in ulong; quotient/remainder rounding avoids overflow for
+            // input clocks near ulong.MaxValue and never schedules zero delay.
+            var numerator = 8UL * (2UL << (int)baudRate.Value) * 1000000000UL;
+            var delay = numerator / frequency + (numerator % frequency != 0 ? 1UL : 0UL);
+            machine.ScheduleAction(TimeInterval.FromNanoseconds(delay), _ =>
+            {
+                lock(receiveBuffer)
+                {
+                    if(generation != transmissionGeneration || !spiEnable.Value)
+                    {
+                        return;
+                    }
+                    var peripheral = RegisteredPeripheral;
+                    var response = peripheral == null ? (byte)0 : peripheral.Transmit(value);
+                    if(generation != transmissionGeneration || !spiEnable.Value)
+                    {
+                        return;
+                    }
+                    receiveBuffer.Enqueue(response);
+                    isShifting = false;
+                    Update();
+                    if(generation != transmissionGeneration || !spiEnable.Value)
+                    {
+                        return;
+                    }
+                    if(holdingByte.HasValue)
+                    {
+                        var next = holdingByte.Value;
+                        holdingByte = null;
+                        StartTransmission(next);
+                    }
+                    Update();
+                    RequestTransmitDMA();
+                }
+            });
+        }
+
+        private void CancelTransmission()
+        {
+            transmissionGeneration++;
+            isShifting = false;
+            holdingByte = null;
+        }
+
         private void Update()
         {
             var rxBufferNotEmpty = receiveBuffer.Count != 0;
             var rxBufferNotEmptyInterruptFlag = rxBufferNotEmpty && rxBufferNotEmptyInterruptEnable.Value;
 
-            IRQ.Set(txBufferEmptyInterruptEnable.Value || rxBufferNotEmptyInterruptFlag);
+            IRQ.Set((txBufferEmptyInterruptEnable.Value && !holdingByte.HasValue) || rxBufferNotEmptyInterruptFlag);
             // A CPU read can consume RXNE while DMA is disabled. Withdraw the
             // request when the buffer drains, rather than remembering a pulse
             // for a byte that no longer exists.
@@ -194,11 +273,12 @@ namespace Antmicro.Renode.Peripherals.SPI
                         this.Log(LogLevel.Warning, "Slave mode is not supported");
                     }
                 }, name: "MSTR")
-                .WithValueField(3, 3, name: "Baud") // Physical
+                .WithValueField(3, 3, out baudRate, name: "Baud")
                 .WithFlag(6, out spiEnable, changeCallback: (oldValue, newValue) =>
                 {
                     if(!newValue)
                     {
+                        CancelTransmission();
                         IRQ.Unset();
                     }
                     RequestTransmitDMA();
@@ -232,13 +312,13 @@ namespace Antmicro.Renode.Peripherals.SPI
 
             Registers.Status.Define(registers, 2)
                 .WithFlag(0, FieldMode.Read, valueProviderCallback: _ => receiveBuffer.Count != 0, name: "RXNE")
-                .WithFlag(1, FieldMode.Read, valueProviderCallback: _ => true, name: "TXE") // transfers are instant
+                .WithFlag(1, FieldMode.Read, valueProviderCallback: _ => !holdingByte.HasValue, name: "TXE")
                 .WithTaggedFlag("CHSIDE", 2) // r/o
                 .WithTaggedFlag("UDR", 3) // r/o
                 .WithTaggedFlag("CRCERR", 4) // rc_w0
                 .WithTaggedFlag("MODF", 5) // r/o
                 .WithTaggedFlag("OVR", 6) // r/o
-                .WithTaggedFlag("BSY", 7) // r/o
+                .WithFlag(7, FieldMode.Read, valueProviderCallback: _ => isShifting, name: "BSY")
                 .WithTaggedFlag("FRE", 8) // r/o
                 .WithReservedBits(9, 23);
 
@@ -287,6 +367,13 @@ namespace Antmicro.Renode.Peripherals.SPI
 
         private IFlagRegisterField txBufferEmptyInterruptEnable, rxBufferNotEmptyInterruptEnable, rxDmaEnable;
         private IFlagRegisterField spiEnable, txDmaEnable;
+        private IValueRegisterField baudRate;
+
+        private readonly IMachine machine;
+        private readonly ulong frequency;
+        private ulong transmissionGeneration;
+        private bool isShifting;
+        private byte? holdingByte;
 
         private readonly DoubleWordRegisterCollection registers;
 
