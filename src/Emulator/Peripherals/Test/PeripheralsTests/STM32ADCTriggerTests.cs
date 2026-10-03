@@ -14,6 +14,34 @@ namespace Antmicro.Renode.PeripheralsTests
     public class STM32ADCTriggerTests
     {
         [Test]
+        public void ShouldUseSequenceWrittenAfterEnablingADC()
+        {
+            EmulationManager.Instance.Clear();
+            using(var machine=new Machine())
+            {
+                var emulation=EmulationManager.Instance.CurrentEmulation;
+                emulation.AddMachine(machine);
+                try
+                {
+                    var adc=new STM32_ADC(machine);
+                    adc.SetChannelValue(0,17);adc.SetChannelValue(10,1234);
+                    // Match the board driver: ADON precedes SQR programming.
+                    adc.WriteDoubleWord(8,1u|(6u<<24)|(1u<<28));
+                    adc.WriteDoubleWord(0x34,10u);
+                    adc.OnGPIO(6,true);
+                    Advance(machine,100000);
+                    Assert.AreEqual(1234u,adc.ReadDoubleWord(0x4c));
+                    adc.OnGPIO(6,false);
+                    adc.WriteDoubleWord(0x34,0u);
+                    adc.OnGPIO(6,true);
+                    Advance(machine,100000);
+                    Assert.AreEqual(17u,adc.ReadDoubleWord(0x4c));
+                }
+                finally {emulation.RemoveMachine(machine);}
+            }
+        }
+
+        [Test]
         public void ShouldSelectEdgesAndScanIdleButtonThroughHalfwordDataReads()
         {
             // Other peripheral fixtures may leave disposed machines in the global emulation.

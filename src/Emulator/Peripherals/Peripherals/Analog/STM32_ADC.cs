@@ -273,6 +273,10 @@ namespace Antmicro.Renode.Peripherals.Analog
         {
             if(adcOn.Value)
             {
+                // Sequence registers may be configured after ADON. Select the
+                // current rank when conversion starts rather than retaining
+                // the channel that was selected when the ADC was enabled.
+                currentChannel = channels[regularSequence[currentChannelIdx].Value];
                 this.Log(LogLevel.Debug, "Starting conversion time={0}",
                       machine.ElapsedVirtualTime.TimeElapsed);
 
