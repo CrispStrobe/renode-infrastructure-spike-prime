@@ -45,6 +45,30 @@ namespace Antmicro.Renode.PeripheralsTests
         }
 
         [Test]
+        public void ShouldWriteOneTransmitByteThroughSystemBus()
+        {
+            // Model slave mode exposes exactly the bytes accepted by TXDR.
+            Assert.IsEmpty(controller.Read(1));
+            machine.SystemBus.WriteByte(ControllerAddress + (uint)TransmitData, 0x5A);
+            CollectionAssert.AreEqual(new byte[] { 0x5A }, controller.Read(1));
+            Assert.IsEmpty(controller.Read(1));
+            machine.SystemBus.WriteByte(ControllerAddress + (uint)Control1, 0xFF);
+            Assert.AreEqual(0u, controller.ReadDoubleWord(Control1));
+        }
+
+        [Test]
+        public void ShouldConsumeExactlyOneReceiveBytePerSystemBusRead()
+        {
+            controller.Write(new byte[] { 0x12, 0x34 });
+            // Unsupported byte control reads must neither expose controls nor
+            // consume data through an implicit wider access.
+            Assert.AreEqual(0, machine.SystemBus.ReadByte(ControllerAddress + (uint)Control1));
+            Assert.AreEqual(0x12, machine.SystemBus.ReadByte(ControllerAddress + (uint)ReceiveData));
+            Assert.AreEqual(0x34, machine.SystemBus.ReadByte(ControllerAddress + (uint)ReceiveData));
+            Assert.AreEqual(0, machine.SystemBus.ReadByte(ControllerAddress + (uint)ReceiveData));
+        }
+
+        [Test]
         public void ShouldGateTransmitRequestsWithDMAEnable()
         {
             BeginWrite(2);
