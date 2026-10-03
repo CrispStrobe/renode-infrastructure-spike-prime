@@ -109,7 +109,7 @@ namespace Antmicro.Renode.PeripheralsTests
         {
             var dma = new STM32DMA(machine);
             var memory = new MappedMemory(machine, 0x20000);
-            machine.SystemBus.Register(uart, new BusPointRegistration(0x40004400));
+            machine.SystemBus.Register(uart, new BusRangeRegistration(0x40004400, 0x400));
             machine.SystemBus.Register(dma, new BusPointRegistration(0x40026000));
             machine.SystemBus.Register(memory, new BusRangeRegistration(0x20000000, 0x20000));
             uart.DMATransmit.Connect(dma, 6);
@@ -169,7 +169,7 @@ namespace Antmicro.Renode.PeripheralsTests
         {
             var dma = new STM32DMA(machine);
             var memory = new MappedMemory(machine, 4096);
-            machine.SystemBus.Register(uart, new BusPointRegistration(0x40004400));
+            machine.SystemBus.Register(uart, new BusRangeRegistration(0x40004400, 0x400));
             machine.SystemBus.Register(dma, new BusPointRegistration(0x40026000));
             machine.SystemBus.Register(memory, new BusRangeRegistration(0x20000000, 4096));
             uart.DMATransmit.Connect(dma, 6);
