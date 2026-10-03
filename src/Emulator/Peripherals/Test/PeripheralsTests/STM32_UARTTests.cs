@@ -161,6 +161,60 @@ namespace Antmicro.Renode.PeripheralsTests
             }
         }
 
+        [TestCase(0)]
+        [TestCase(1)]
+        [TestCase(2)]
+        [TestCase(3)]
+        public void ShouldCancelRetainedDmaReadinessBeforeAnotherDescriptor(int disabledPrerequisite)
+        {
+            var dma = new STM32DMA(machine);
+            var memory = new MappedMemory(machine, 4096);
+            machine.SystemBus.Register(uart, new BusPointRegistration(0x40004400));
+            machine.SystemBus.Register(dma, new BusPointRegistration(0x40026000));
+            machine.SystemBus.Register(memory, new BusRangeRegistration(0x20000000, 4096));
+            uart.DMATransmit.Connect(dma, 6);
+            var received = new List<byte>();
+            uart.CharReceived += value => received.Add(value);
+            memory.WriteByte(0, 0xA5);
+            uart.WriteDoubleWord((long)Registers.Control1, UsartEnable | TransmitterEnable);
+            uart.WriteDoubleWord((long)Registers.Control3, DmaTransmitEnable);
+            dma.WriteDoubleWord(0xA0, 1u << 6);
+            dma.WriteDoubleWord(0xA8, 0x40004404);
+            dma.WriteDoubleWord(0xAC, 0x20000000);
+            dma.WriteDoubleWord(0xA4, 1);
+            dma.WriteDoubleWord(0xA0, (1u << 6) | 1u);
+            CollectionAssert.AreEqual(new byte[] { 0xA5 }, received);
+            Assert.AreEqual(0u, dma.ReadDoubleWord(0xA4));
+
+            switch(disabledPrerequisite)
+            {
+            case 0:
+                uart.WriteDoubleWord((long)Registers.Control3, 0);
+                break;
+            case 1:
+                uart.WriteDoubleWord((long)Registers.Control1, UsartEnable);
+                break;
+            case 2:
+                uart.WriteDoubleWord((long)Registers.Control1, TransmitterEnable);
+                break;
+            case 3:
+                uart.Reset();
+                break;
+            }
+            Assert.False(uart.DMATransmit.IsSet);
+            memory.WriteByte(0, 0x5A);
+            received.Clear();
+            dma.WriteDoubleWord(0xA4, 1);
+            dma.WriteDoubleWord(0xA0, (1u << 6) | 1u);
+            Assert.AreEqual(1u, dma.ReadDoubleWord(0xA4), "A deasserted UART must not consume stale readiness");
+            CollectionAssert.IsEmpty(received);
+
+            uart.WriteDoubleWord((long)Registers.Control1, UsartEnable | TransmitterEnable);
+            uart.WriteDoubleWord((long)Registers.Control3, DmaTransmitEnable);
+            CollectionAssert.AreEqual(new byte[] { 0x5A }, received);
+            Assert.AreEqual(0u, dma.ReadDoubleWord(0xA4));
+        }
+
         [TestCase(0u, DmaTransmitEnable)]
         [TestCase(UsartEnable, DmaTransmitEnable)]
         [TestCase(TransmitterEnable, DmaTransmitEnable)]
