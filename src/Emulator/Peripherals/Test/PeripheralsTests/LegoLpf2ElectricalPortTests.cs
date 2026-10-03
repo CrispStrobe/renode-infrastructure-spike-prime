@@ -45,11 +45,18 @@ public static class ElectricalTests
             p.Tick(); Check(motor.Power==50,"forward electrical duty"); Check(motor.SpeedPercent==0 && motor.PositionDegrees>0,"mechanics advance without UART");
             timer.WriteDoubleWord(0x20,0x32);p.Tick();Check(motor.Power==0,"channel enable enforced");
             timer.WriteDoubleWord(0x20,0x31);p.Tick();Check(motor.Power==0,"inverted polarity enforced");
+            timer.WriteDoubleWord(0x18,0x6070);p.Tick();Check(motor.Power==50,"PWM2 normal polarity is equivalent active-low drive");
+            timer.WriteDoubleWord(0x34,250);p.Tick();Check(motor.Power==25,"PWM2 driven fraction follows CCR");
+            timer.WriteDoubleWord(0x20,0x33);p.Tick();Check(motor.Power==0,"PWM2 inverted polarity rejected");
+            timer.WriteDoubleWord(0x34,500);
             timer.WriteDoubleWord(0x20,0x33);timer.WriteDoubleWord(0x18,0x6050);p.Tick();Check(motor.Power==0,"PWM mode enforced");
             timer.WriteDoubleWord(0x18,0x6060);gpio.WriteDoubleWord(0x24,2u<<4);p.Tick();Check(motor.Power==0,"AF enforced");
             gpio.WriteDoubleWord(0x24,1u<<4);timer.WriteDoubleWord(0,0);p.Tick();Check(motor.Power==0,"CEN enforced");
             timer.WriteDoubleWord(0,1);timer.WriteDoubleWord(0x44,0);p.Tick();Check(motor.Power==0,"MOE enforced on advanced timer");
             timer.WriteDoubleWord(0x44,0x8000);Mode(gpio,9,1);Mode(gpio,11,2);gpio.WriteDoubleWord(0x14,1u<<9);gpio.WriteDoubleWord(0x24,1u<<12);timer.WriteDoubleWord(0x38,250);p.Tick();Check(motor.Power==-25,"reverse electrical duty");
+            timer.WriteDoubleWord(0x18,0x7060);timer.WriteDoubleWord(0x20,0x13);p.Tick();Check(motor.Power==-25,"reverse PWM2 active-low drive");
+            timer.WriteDoubleWord(0x38,1000);p.Tick();Check(motor.Power==-100,"PWM2 full duty boundary");
+            timer.WriteDoubleWord(0x20,0x03);p.Tick();Check(motor.Power==0,"PWM2 channel enable enforced");
             Mode(gpio,11,1); gpio.WriteDoubleWord(0x14,(1u<<9)|(1u<<11));p.Tick();Check(motor.Power==0,"GPIO brake");
             var gpio2=new STM32_GPIOPort(m);
             var general=new LegoLpf2ElectricalPort(m,gpio,0,gpio,1,gpio,2,gpio,3,"motor",gpio,6,1,timer,3,4,2,false,gpio2);
@@ -81,7 +88,7 @@ namespace Antmicro.Renode.PeripheralsTests
         [Test]
         public void ShouldApplyElectricalGatesAndMechanicalPolicy()
         {
-            Assert.AreEqual("PASS 29 electrical and mechanical checks",
+            Assert.AreEqual("PASS 35 electrical and mechanical checks",
                 ElectricalTests.RunElectricalTests(EmulationManager.Instance.CurrentEmulation));
         }
     }

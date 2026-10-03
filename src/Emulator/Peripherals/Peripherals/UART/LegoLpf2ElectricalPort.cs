@@ -81,7 +81,12 @@ namespace Antmicro.Renode.Peripherals.UART
             var af=(gpio.ReadDoubleWord(pin < 8 ? 0x20 : 0x24) >> ((pin % 8)*4))&15;
             var ccer=(bridgeTimer.ReadDoubleWord(0x20) >> ((channel-1)*4))&15;
             var ccmr=(bridgeTimer.ReadDoubleWord(channel <= 2 ? 0x18 : 0x1c) >> (((channel-1)%2)*8))&255;
-            return af==bridgeAlternateFunction && (ccer&3)==3 && (ccmr&3)==0 && ((ccmr>>4)&7)==6;
+            // PWM1 with inverted polarity and PWM2 with normal polarity
+            // produce the same active-low bridge waveform. Both use CCR/ARR
+            // as the driven fraction; keep rejecting other mode/polarity pairs.
+            var mode=(ccmr>>4)&7;
+            var activeLow=((ccer&3)==3 && mode==6) || ((ccer&3)==1 && mode==7);
+            return af==bridgeAlternateFunction && activeLow && (ccmr&3)==0;
         }
         private static void ValidatePin(int pin) { if(pin<0 || pin>15)throw new ArgumentOutOfRangeException(nameof(pin)); }
         private static uint Mode(STM32_GPIOPort gpio,int pin) { return (gpio.ReadDoubleWord(0)>>(pin*2))&3; }
