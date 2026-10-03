@@ -16,6 +16,335 @@ namespace Antmicro.Renode.PeripheralsTests
     [NonParallelizable]
     public class STM32SPIDmaReadTests
     {
+        [TestCase(false, 0, 16000000UL, 1000UL)]
+        [TestCase(true, 0, 16000000UL, 1000UL)]
+        [TestCase(false, 3, 16000000UL, 8000UL)]
+        [TestCase(true, 3, 16000000UL, 8000UL)]
+        [TestCase(false, 0, 48000000UL, 334UL)]
+        [TestCase(true, 0, 48000000UL, 334UL)]
+        [TestCase(false, 3, 48000000UL, 2667UL)]
+        [TestCase(true, 3, 48000000UL, 2667UL)]
+        public void ShouldPaceFullDuplexDmaWithDefaultReceiveCapacity(bool receiveFirst, int baud, ulong frequency, ulong delay)
+        {
+            EmulationManager.Instance.Clear();
+            using(var machine = new Machine())
+            {
+                EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
+                var spi = new STM32SPI(machine, frequency: frequency);
+                var dma = new STM32DMA(machine);
+                var memory = new MappedMemory(machine, 4096);
+                var source = new PatternSource { ExpectedData = 0xFF };
+                machine.SystemBus.Register(spi, new BusPointRegistration(0x40003800));
+                machine.SystemBus.Register(dma, new BusPointRegistration(0x40026000));
+                machine.SystemBus.Register(memory, new BusRangeRegistration(0x20000000, 4096));
+                spi.Register(source, NullRegistrationPoint.Instance);
+                spi.DMAReceive.Connect(dma, 3);
+                spi.DMATransmit.Connect(dma, 4);
+                spi.WriteDoubleWord(0, (uint)(836 | (baud << 3)));
+                spi.WriteDoubleWord(4, 3);
+                for(var i = 0; i < 64; i++) memory.WriteByte(0x100 + i, 0xFF);
+                memory.WriteByte(0, 0xA5);
+                memory.WriteByte(65, 0x5A);
+                dma.WriteDoubleWord(0x60, 0x4000380C);
+                dma.WriteDoubleWord(0x64, 0x20000001);
+                dma.WriteDoubleWord(0x5C, 64);
+                if(receiveFirst) dma.WriteDoubleWord(0x58, 1041);
+                dma.WriteDoubleWord(0x78, 0x4000380C);
+                dma.WriteDoubleWord(0x7C, 0x20000100);
+                dma.WriteDoubleWord(0x74, 64);
+                dma.WriteDoubleWord(0x70, 1089);
+                if(!receiveFirst) dma.WriteDoubleWord(0x58, 1041);
+                Equal(0, source.Count, "no wire completion before simulated time");
+                Equal(62, dma.ReadDoubleWord(0x74), "one shifting and one held byte");
+                Equal(128, spi.ReadDoubleWord(8), "BSY set, TXE and RXNE clear");
+                Equal(0, spi.DMATransmit.IsSet ? 1 : 0, "occupied holding slot withdraws readiness");
+                ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromNanoseconds(delay - 1), true);
+                Equal(0, source.Count, "BR divider delays first byte until rounded boundary");
+                ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromNanoseconds(1), true);
+                Equal(1, source.Count, "one completed byte per wire interval");
+                for(var i = 1; i < 63; i++)
+                {
+                    ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromNanoseconds(delay), true);
+                    Equal(i + 1, source.Count, "paced wire completions");
+                }
+                Equal(0, dma.ReadDoubleWord(0x74), "TX descriptor complete before last shift");
+                Equal(1, dma.ReadDoubleWord(0x5C), "RX waits for last shift");
+                Equal(130, spi.ReadDoubleWord(8), "free holding slot while last byte shifts");
+                ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromNanoseconds(delay), true);
+                Equal(64, source.Count, "all bytes complete");
+                for(var i = 0; i < 64; i++) Equal(i, memory.ReadByte(i + 1), "ordered timed response");
+                Equal(0xA5, memory.ReadByte(0), "leading guard");
+                Equal(0x5A, memory.ReadByte(65), "trailing guard");
+                Equal(0, dma.ReadDoubleWord(0x5C), "RX NDTR");
+                Equal(1040, dma.ReadDoubleWord(0x58), "RX EN clears");
+                Equal(1088, dma.ReadDoubleWord(0x70), "TX EN clears");
+                Equal(1 << 27, dma.ReadDoubleWord(0), "RX TCIF");
+                Equal(1 << 5, dma.ReadDoubleWord(4), "TX TCIF");
+                Equal(1, dma.Connections[3].IsSet ? 1 : 0, "RX completion IRQ");
+                Equal(0, dma.Connections[4].IsSet ? 1 : 0, "TX TCIE masked");
+                Equal(2, spi.ReadDoubleWord(8), "TXE set and BSY/RXNE clear");
+                ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromNanoseconds(delay * 2), true);
+                Equal(64, source.Count, "no extra scheduled transfer");
+            }
+            EmulationManager.Instance.Clear();
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ShouldCancelTimedShiftAndHoldingByte(bool reset)
+        {
+            EmulationManager.Instance.Clear();
+            using(var machine = new Machine())
+            {
+                EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
+                var spi = new STM32SPI(machine, frequency: 16000000);
+                var source = new PatternSource();
+                machine.SystemBus.Register(spi, new BusPointRegistration(0x40013000));
+                spi.Register(source, NullRegistrationPoint.Instance);
+                spi.WriteDoubleWord(0, (1 << 6) | (1 << 2));
+                spi.WriteByte(0xC, 0x11);
+                ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromMicroseconds(1), true);
+                Equal(1, source.Count, "completed response before cancellation");
+                spi.WriteByte(0xC, 0x22);
+                spi.WriteByte(0xC, 0x33);
+                if(reset) spi.Reset();
+                else spi.WriteDoubleWord(0, 1 << 2);
+                Equal(reset ? 0 : 1, spi.ReadDoubleWord(8) & 1, "disable retains completed RX, reset clears it");
+                Equal(2, spi.ReadDoubleWord(8) & 130, "cancel frees holding slot and clears BSY");
+                Equal(0, spi.DMATransmit.IsSet ? 1 : 0, "cancel withdraws TX readiness");
+                Equal(0, spi.DMAReceive.IsSet ? 1 : 0, "cancel withdraws RX readiness");
+                spi.WriteDoubleWord(0, (1 << 6) | (1 << 2));
+                spi.WriteByte(0xC, 0x44);
+                ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromMicroseconds(2), true);
+                Equal(2, source.Count, "stale shift and held byte cancelled after re-enable");
+                if(!reset) Equal(0, spi.ReadByte(0xC), "retained response");
+                Equal(1, spi.ReadByte(0xC), "new response");
+                Equal(2, spi.ReadDoubleWord(8), "only new transfer completed");
+            }
+            EmulationManager.Instance.Clear();
+        }
+
+        [TestCase(0UL)]
+        [TestCase(1UL)]
+        [TestCase(ulong.MaxValue)]
+        public void ShouldHandleInputClockBoundariesAndTransmitOnlyLowByte(ulong frequency)
+        {
+            EmulationManager.Instance.Clear();
+            using(var machine = new Machine())
+            {
+                EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
+                var spi = new STM32SPI(machine, frequency: frequency);
+                var source = new PatternSource { ExpectedData = 0xAB };
+                machine.SystemBus.Register(spi, new BusPointRegistration(0x40013000));
+                spi.Register(source, NullRegistrationPoint.Instance);
+                spi.WriteDoubleWord(0, (1 << 6) | (1 << 2) | (7 << 3) | (1 << 11));
+                spi.WriteWord(0xC, 0x12AB);
+                Equal(frequency == 0 ? 1 : 0, source.Count, "zero frequency is instantaneous");
+                if(frequency == 1)
+                {
+                    ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromNanoseconds(2047999999999UL), true);
+                    Equal(0, source.Count, "minimum clock delay does not round down");
+                }
+                ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromNanoseconds(1), true);
+                Equal(1, source.Count, "boundary frequency completes one byte");
+                Equal(3, spi.ReadDoubleWord(8), "one response and idle transmitter");
+                Equal(0, spi.ReadByte(0xC), "low byte response");
+            }
+            EmulationManager.Instance.Clear();
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ShouldCancelTimedDmaWithoutCompletingOutstandingBytes(bool reset)
+        {
+            EmulationManager.Instance.Clear();
+            using(var machine = new Machine())
+            {
+                EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
+                var spi = new STM32SPI(machine, frequency: 16000000);
+                var dma = new STM32DMA(machine);
+                var memory = new MappedMemory(machine, 4096);
+                var source = new PatternSource();
+                machine.SystemBus.Register(spi, new BusPointRegistration(0x40013000));
+                machine.SystemBus.Register(dma, new BusPointRegistration(0x40026000));
+                machine.SystemBus.Register(memory, new BusRangeRegistration(0x20000000, 4096));
+                spi.Register(source, NullRegistrationPoint.Instance);
+                spi.DMAReceive.Connect(dma, 0);
+                spi.DMATransmit.Connect(dma, 1);
+                spi.WriteDoubleWord(0, (1 << 6) | (1 << 2));
+                spi.WriteDoubleWord(4, 3);
+                dma.WriteDoubleWord(0x18, 0x4001300C);
+                dma.WriteDoubleWord(0x1C, 0x20000000);
+                dma.WriteDoubleWord(0x14, 4);
+                dma.WriteDoubleWord(0x10, 1 | (1 << 4) | (1 << 10));
+                dma.WriteDoubleWord(0x30, 0x4001300C);
+                dma.WriteDoubleWord(0x34, 0x20000100);
+                dma.WriteDoubleWord(0x2C, 4);
+                dma.WriteDoubleWord(0x28, 1 | (1 << 4) | (1 << 6));
+                Equal(2, dma.ReadDoubleWord(0x2C), "two outstanding transmit bytes");
+                if(reset) spi.Reset();
+                else spi.WriteDoubleWord(0, 1 << 2);
+                ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromMicroseconds(10), true);
+                Equal(0, source.Count, "cancelled bytes never reach target");
+                Equal(4, dma.ReadDoubleWord(0x14), "no stale receive request");
+                Equal(2, dma.ReadDoubleWord(0x2C), "no stale transmit request");
+                Equal(0, dma.ReadDoubleWord(0), "no spurious completion flags");
+                Equal(0, dma.Connections[0].IsSet ? 1 : 0, "no RX IRQ");
+                Equal(0, dma.Connections[1].IsSet ? 1 : 0, "no TX IRQ");
+                Equal(2, spi.ReadDoubleWord(8), "idle and no received bytes");
+            }
+            EmulationManager.Instance.Clear();
+        }
+
+        [TestCase(1, false)]
+        [TestCase(1, true)]
+        [TestCase(3, false)]
+        [TestCase(3, true)]
+        [TestCase(64, false)]
+        [TestCase(64, true)]
+        public void ShouldDrainBufferedFullDuplexTransferInEitherSetupOrder(int length, bool receiveFirst)
+        {
+            EmulationManager.Instance.Clear();
+            using(var machine = new Machine())
+            {
+                EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
+                var spi = new STM32SPI(machine, bufferCapacity: 64);
+                var dma = new STM32DMA(machine);
+                var memory = new MappedMemory(machine, 4096);
+                var source = new PatternSource { ExpectedData = 0xFF };
+                machine.SystemBus.Register(spi, new BusPointRegistration(0x40003800));
+                machine.SystemBus.Register(dma, new BusPointRegistration(0x40026000));
+                machine.SystemBus.Register(memory, new BusRangeRegistration(0x20000000, 4096));
+                spi.Register(source, NullRegistrationPoint.Instance);
+                spi.DMAReceive.Connect(dma, 3);
+                spi.DMATransmit.Connect(dma, 4);
+                spi.WriteDoubleWord(0, 836);
+                spi.WriteDoubleWord(4, 3);
+                for(var i = 0; i < length; i++) memory.WriteByte(0x100 + i, 0xFF);
+                memory.WriteByte(0, 0xA5);
+                memory.WriteByte(length + 1, 0x5A);
+                dma.WriteDoubleWord(0x60, 0x4000380C); // stream 3 PAR
+                dma.WriteDoubleWord(0x64, 0x20000001);
+                dma.WriteDoubleWord(0x5C, (uint)length);
+                dma.WriteDoubleWord(0x6C, 7);
+                if(receiveFirst)
+                {
+                    dma.WriteDoubleWord(0x58, 1041);
+                }
+                dma.WriteDoubleWord(0x78, 0x4000380C); // stream 4 PAR
+                dma.WriteDoubleWord(0x7C, 0x20000100);
+                dma.WriteDoubleWord(0x74, (uint)length);
+                dma.WriteDoubleWord(0x84, 7);
+                dma.WriteDoubleWord(0x70, 1089);
+                Equal(length, source.Count, "all TX units reach SPI");
+                Equal(0, dma.ReadDoubleWord(0x74), "TX NDTR");
+                Equal(1088, dma.ReadDoubleWord(0x70), "TX EN clears");
+                if(!receiveFirst)
+                {
+                    Equal(length, dma.ReadDoubleWord(0x5C), "RX waits for enable");
+                    Equal(1, spi.ReadDoubleWord(8) & 1, "responses buffered");
+                    dma.WriteDoubleWord(0x58, 1041);
+                }
+                for(var i = 0; i < length; i++)
+                {
+                    Equal(i, memory.ReadByte(i + 1), "ordered response");
+                }
+                Equal(0, dma.ReadDoubleWord(0x5C), "RX NDTR");
+                Equal(1040, dma.ReadDoubleWord(0x58), "RX EN clears");
+                Equal(1 << 27, dma.ReadDoubleWord(0), "RX TCIF");
+                Equal(1 << 5, dma.ReadDoubleWord(4), "TX TCIF");
+                Equal(0, spi.ReadDoubleWord(8) & 1, "buffer drained");
+                Equal(0, spi.DMAReceive.IsSet ? 1 : 0, "readiness withdrawn");
+                Equal(0xA5, memory.ReadByte(0), "leading guard");
+                Equal(0x5A, memory.ReadByte(length + 1), "trailing guard");
+                // Repeated status/control updates cannot turn a consumed byte
+                // into a request for a new descriptor.
+                dma.WriteDoubleWord(0x5C, 1);
+                dma.WriteDoubleWord(0x58, 1041);
+                spi.WriteDoubleWord(4, 3);
+                spi.WriteDoubleWord(4, 3);
+                ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromMicroseconds(2), true);
+                Equal(1, dma.ReadDoubleWord(0x5C), "no duplicate receive");
+                Equal(length, source.Count, "no duplicate transmit");
+            }
+            EmulationManager.Instance.Clear();
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ShouldPublishBufferedReceiveReadinessOnLatePeripheralEnable(bool enableSPI)
+        {
+            EmulationManager.Instance.Clear();
+            using(var machine = new Machine())
+            {
+                EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
+                var spi = new STM32SPI(machine);
+                var dma = new STM32DMA(machine);
+                var memory = new MappedMemory(machine, 4096);
+                machine.SystemBus.Register(spi, new BusPointRegistration(0x40013000));
+                machine.SystemBus.Register(memory, new BusRangeRegistration(0x20000000, 4096));
+                spi.Register(new PatternSource(), NullRegistrationPoint.Instance);
+                spi.DMAReceive.Connect(dma, 0);
+                spi.WriteDoubleWord(0, enableSPI ? 0u : 1u << 6);
+                spi.WriteDoubleWord(4, enableSPI ? 1u : 0u);
+                for(var i = 0; i < 4; i++) spi.WriteByte(0xC, 0xFF);
+                dma.WriteDoubleWord(0x18, 0x4001300C);
+                dma.WriteDoubleWord(0x1C, 0x20000000);
+                dma.WriteDoubleWord(0x14, 4);
+                dma.WriteDoubleWord(0x10, 1 | (1 << 10));
+                Equal(4, dma.ReadDoubleWord(0x14), "gated buffered data waits");
+                spi.WriteDoubleWord(enableSPI ? 0 : 4, enableSPI ? 1u << 6 : 1u);
+                Equal(0, dma.ReadDoubleWord(0x14), "late enable drains all bytes");
+                for(var i = 0; i < 4; i++) Equal(i, memory.ReadByte(i), "late enabled response");
+                Equal(0, spi.ReadDoubleWord(8) & 1, "buffer drained");
+                Equal(0, spi.DMAReceive.IsSet ? 1 : 0, "no stale readiness");
+            }
+            EmulationManager.Instance.Clear();
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ShouldCancelBufferedReadinessWhenPeripheralIsDisabledAndCpuDrains(bool disableSPI)
+        {
+            EmulationManager.Instance.Clear();
+            using(var machine = new Machine())
+            {
+                EmulationManager.Instance.CurrentEmulation.AddMachine(machine);
+                var spi = new STM32SPI(machine);
+                var dma = new STM32DMA(machine);
+                var memory = new MappedMemory(machine, 4096);
+                machine.SystemBus.Register(spi, new BusPointRegistration(0x40013000));
+                machine.SystemBus.Register(memory, new BusRangeRegistration(0x20000000, 4096));
+                spi.Register(new PatternSource(), NullRegistrationPoint.Instance);
+                spi.DMAReceive.Connect(dma, 0);
+                spi.WriteDoubleWord(0, 1 << 6);
+                spi.WriteDoubleWord(4, 1);
+                for(var i = 0; i < 4; i++) spi.WriteByte(0xC, 0xFF);
+                Equal(1, spi.DMAReceive.IsSet ? 1 : 0, "readiness retained before stream enable");
+                spi.WriteDoubleWord(disableSPI ? 0 : 4, 0);
+                Equal(0, spi.DMAReceive.IsSet ? 1 : 0, "disable withdraws readiness");
+                dma.WriteDoubleWord(0x18, 0x4001300C);
+                dma.WriteDoubleWord(0x1C, 0x20000000);
+                dma.WriteDoubleWord(0x14, 2);
+                dma.WriteDoubleWord(0x10, 1 | (1 << 10));
+                Equal(2, dma.ReadDoubleWord(0x14), "cancelled readiness cannot read");
+                for(var i = 0; i < 4; i++) Equal(i, spi.ReadByte(0xC), "CPU consumes buffered bytes");
+                spi.WriteDoubleWord(disableSPI ? 0 : 4, disableSPI ? 1u << 6 : 1u);
+                ((BaseClockSource)machine.ClockSource).Advance(TimeInterval.FromMicroseconds(2), true);
+                Equal(2, dma.ReadDoubleWord(0x14), "CPU drain cannot leave stale request");
+                spi.WriteByte(0xC, 0xFF);
+                Equal(1, dma.ReadDoubleWord(0x14), "fresh response consumed exactly once");
+                Equal(4, memory.ReadByte(0), "fresh response");
+                spi.WriteDoubleWord(4, 1);
+                Equal(1, dma.ReadDoubleWord(0x14), "control update cannot duplicate response");
+                spi.WriteByte(0xC, 0xFF);
+                Equal(0, dma.ReadDoubleWord(0x14), "second fresh response completes");
+                Equal(5, memory.ReadByte(1), "second response");
+                Equal(0, spi.ReadDoubleWord(8) & 1, "buffer drained");
+            }
+            EmulationManager.Instance.Clear();
+        }
+
         [Test]
         public void ShouldReadRepeatedDmaBlocksAfterCpuConsumesCommandBytes()
         {
