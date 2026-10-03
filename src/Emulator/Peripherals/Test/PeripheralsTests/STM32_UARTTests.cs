@@ -5,7 +5,13 @@
 // Full license text is available in 'licenses/MIT.txt'.
 //
 
+using System.Collections.Generic;
+
 using Antmicro.Renode.Core;
+using Antmicro.Renode.Core.Structure;
+using Antmicro.Renode.Peripherals.Bus;
+using Antmicro.Renode.Peripherals.DMA;
+using Antmicro.Renode.Peripherals.Memory;
 using Antmicro.Renode.Peripherals.UART;
 using Antmicro.Renode.Time;
 
@@ -95,6 +101,88 @@ namespace Antmicro.Renode.PeripheralsTests
             uart.WriteDoubleWord((long)Registers.Control3, 0);
             uart.WriteDoubleWord((long)Registers.Data, TestByte);
             Assert.AreEqual(2, receiver.RisingEdges);
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void ShouldBootstrapAndDrainTransmitDmaInEitherSetupOrder(bool uartFirst)
+        {
+            var dma = new STM32DMA(machine);
+            var memory = new MappedMemory(machine, 0x20000);
+            machine.SystemBus.Register(uart, new BusPointRegistration(0x40004400));
+            machine.SystemBus.Register(dma, new BusPointRegistration(0x40026000));
+            machine.SystemBus.Register(memory, new BusRangeRegistration(0x20000000, 0x20000));
+            uart.DMATransmit.Connect(dma, 6);
+            var received = new List<byte>();
+            uart.CharReceived += value => received.Add(value);
+
+            if(uartFirst)
+            {
+                // The actual driver enables DMAT/UE/TE before configuring S6,
+                // whose reset direction is still peripheral-to-memory.
+                uart.WriteDoubleWord((long)Registers.Control3, DmaTransmitEnable);
+                uart.WriteDoubleWord((long)Registers.Control1, UsartEnable | TransmitterEnable);
+                Assert.True(uart.DMATransmit.IsSet, "TXE readiness must survive late stream setup");
+            }
+
+            foreach(var length in new[] { 4, 17, 257, 65535 })
+            {
+                var expected = new byte[length];
+                for(var i = 0; i < length; ++i)
+                {
+                    expected[i] = (byte)(i + length);
+                }
+                memory.WriteBytes(1, expected);
+                memory.WriteByte(0, 0xA5);
+                memory.WriteByte(length + 1, 0x5A);
+                received.Clear();
+                dma.WriteDoubleWord(0x0C, 1u << 21); // S6 TCIF write-one-to-clear
+                dma.WriteDoubleWord(0xA0, (1u << 6) | (1u << 10) | (1u << 4));
+                dma.WriteDoubleWord(0xA8, 0x40004404);
+                dma.WriteDoubleWord(0xAC, 0x20000001);
+                dma.WriteDoubleWord(0xA4, (uint)length);
+                dma.WriteDoubleWord(0xA0, (1u << 6) | (1u << 10) | (1u << 4) | 1u);
+                if(!uartFirst && length == 4)
+                {
+                    Assert.AreEqual(4u, dma.ReadDoubleWord(0xA4));
+                    CollectionAssert.IsEmpty(received);
+                    uart.WriteDoubleWord((long)Registers.Control1, UsartEnable | TransmitterEnable);
+                    uart.WriteDoubleWord((long)Registers.Control3, DmaTransmitEnable);
+                }
+                CollectionAssert.AreEqual(expected, received);
+                Assert.AreEqual(0u, dma.ReadDoubleWord(0xA4));
+                Assert.AreEqual(0u, dma.ReadDoubleWord(0xA0) & 1u);
+                Assert.True(dma.Connections[6].IsSet);
+                Assert.AreEqual(0xA5, memory.ReadByte(0));
+                Assert.AreEqual(0x5A, memory.ReadByte(length + 1));
+                dma.WriteDoubleWord(0x0C, 1u << 21);
+                Assert.False(dma.Connections[6].IsSet);
+                Assert.True(uart.DMATransmit.IsSet);
+            }
+        }
+
+        [TestCase(0u, DmaTransmitEnable)]
+        [TestCase(UsartEnable, DmaTransmitEnable)]
+        [TestCase(TransmitterEnable, DmaTransmitEnable)]
+        [TestCase(UsartEnable | TransmitterEnable, 0u)]
+        public void ShouldDeassertTransmitRequestWhenDisabled(uint control1, uint control3)
+        {
+            uart.WriteDoubleWord((long)Registers.Control1, UsartEnable | TransmitterEnable);
+            uart.WriteDoubleWord((long)Registers.Control3, DmaTransmitEnable);
+            Assert.True(uart.DMATransmit.IsSet);
+            uart.WriteDoubleWord((long)Registers.Control1, control1);
+            uart.WriteDoubleWord((long)Registers.Control3, control3);
+            Assert.False(uart.DMATransmit.IsSet);
+        }
+
+        [Test]
+        public void ShouldCancelTransmitReadinessOnReset()
+        {
+            uart.WriteDoubleWord((long)Registers.Control1, UsartEnable | TransmitterEnable);
+            uart.WriteDoubleWord((long)Registers.Control3, DmaTransmitEnable);
+            Assert.True(uart.DMATransmit.IsSet);
+            uart.Reset();
+            Assert.False(uart.DMATransmit.IsSet);
         }
 
         [Test]

@@ -246,10 +246,7 @@ namespace Antmicro.Renode.Peripherals.UART
                 .WithFlag(6, out dmaReceptionRequest, name: "DMAR")
                 .WithFlag(7, out dmaTransmitRequest, changeCallback: (_, value) =>
                 {
-                    if(value)
-                    {
-                        RequestTransmitDMA();
-                    }
+                    RequestTransmitDMA();
                 }, name: "DMAT")
                 .WithTaggedFlag("RTSE", 8)
                 .WithTaggedFlag("CTSE", 9)
@@ -270,12 +267,13 @@ namespace Antmicro.Renode.Peripherals.UART
 
         private void RequestTransmitDMA()
         {
+            // TXE remains asserted in this instantaneous byte model. Retain
+            // its request while software configures a disabled DMA stream, and
+            // retrigger the next byte after a synchronous DMA write.
+            DMATransmit.Unset();
             if(usartEnabled.Value && transmitterEnabled.Value && dmaTransmitRequest.Value)
             {
-                // TXE remains asserted in this instantaneous byte model. Allow
-                // a synchronous DMA write to retrigger the next request.
-                DMATransmit.Unset();
-                DMATransmit.Blink();
+                DMATransmit.Set();
             }
         }
 
