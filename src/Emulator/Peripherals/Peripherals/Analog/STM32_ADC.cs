@@ -76,6 +76,12 @@ namespace Antmicro.Renode.Peripherals.Analog
         public override void Reset()
         {
             base.Reset();
+            samplingTimer.Reset();
+            regularSequenceLen = 1;
+            currentChannelIdx = 0;
+            adcData = 0;
+            IRQ.Unset();
+            DMARequest.Unset();
             System.Array.Clear(triggerLevels, 0, triggerLevels.Length);
             foreach(var c in channels)
             {
@@ -273,6 +279,10 @@ namespace Antmicro.Renode.Peripherals.Analog
         {
             if(adcOn.Value)
             {
+                // Sequence registers may be configured after ADON. Select the
+                // current rank when conversion starts rather than retaining
+                // the channel that was selected when the ADC was enabled.
+                currentChannel = channels[regularSequence[currentChannelIdx].Value];
                 this.Log(LogLevel.Debug, "Starting conversion time={0}",
                       machine.ElapsedVirtualTime.TimeElapsed);
 
@@ -328,7 +338,7 @@ namespace Antmicro.Renode.Peripherals.Analog
 
         // Regular sequence settings, i.e. the channels and order of channels
         // for performing conversion
-        private uint regularSequenceLen;
+        private uint regularSequenceLen = 1;
 
         // Channel objects, for managing input test data
         private uint currentChannelIdx;
