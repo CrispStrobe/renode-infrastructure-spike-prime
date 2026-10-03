@@ -1,6 +1,7 @@
 //
 // Copyright (c) 2010-2023 Antmicro
 // Copyright (c) 2011-2015 Realtime Embedded
+// Copyright (c) 2026 Christian Strobele
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -31,8 +32,6 @@ namespace Antmicro.Renode.Peripherals.I2C
         {
             if((Registers)offset == Registers.Data)
             {
-                byteTransferFinished.Value = false;
-                Update();
                 return (byte)data.Read();
             }
             else
@@ -151,6 +150,9 @@ namespace Antmicro.Renode.Peripherals.I2C
 
         private void Update()
         {
+            // Reading SR1 must not leave a cached RXNE value asserting the
+            // interrupt after DR has been consumed. Use the receive queue.
+            dataRegisterNotEmpty.Value = dataToReceive?.Any() ?? false;
             EventInterrupt.Set(eventInterruptEnable.Value && (startBit.Value || addressSentOrMatched.Value || byteTransferFinished.Value
                 || (bufferInterruptEnable.Value && (dataRegisterEmpty.Value || dataRegisterNotEmpty.Value))));
             ErrorInterrupt.Set(errorInterruptEnable.Value && acknowledgeFailed.Value);
@@ -162,6 +164,11 @@ namespace Antmicro.Renode.Peripherals.I2C
             if(dataToReceive != null && dataToReceive.Any())
             {
                 result = dataToReceive.Dequeue();
+                // Every DR access width consumes the current byte before the
+                // next one arrives. Drop its IRQ before refilling, including
+                // halfword accesses translated through ReadDoubleWord.
+                byteTransferFinished.Value = false;
+                Update();
                 // A master receive is a stream, not a single-byte packet.
                 // Keep one byte available while ACK requests another byte;
                 // clearing ACK leaves the already received final byte to drain.
