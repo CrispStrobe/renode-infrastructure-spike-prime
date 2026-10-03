@@ -170,7 +170,11 @@ namespace Antmicro.Renode.Peripherals.DMA
             {
                 if(!value)
                 {
-                    if(direction.Value == Direction.PeripheralToMemory)
+                    // A falling edge during an active transmit copy can be
+                    // the end of a queued byte-request pulse. Preserve that
+                    // deferred request until the copy returns. At rest, a low
+                    // line cancels readiness retained for the next descriptor.
+                    if(direction.Value == Direction.PeripheralToMemory || !transferInProgress)
                     {
                         pendingPeripheralRequest = false;
                     }

@@ -15,7 +15,7 @@ using Antmicro.Renode.Utilities;
 
 namespace Antmicro.Renode.Peripherals.I2C
 {
-    public sealed class STM32F7_I2C : SimpleContainer<II2CPeripheral>, II2CPeripheral, IDoubleWordPeripheral, IKnownSize
+    public sealed class STM32F7_I2C : SimpleContainer<II2CPeripheral>, II2CPeripheral, IDoubleWordPeripheral, IBytePeripheral, IKnownSize
     {
         public STM32F7_I2C(IMachine machine) : base(machine)
         {
@@ -35,6 +35,29 @@ namespace Antmicro.Renode.Peripherals.I2C
         public void WriteDoubleWord(long offset, uint value)
         {
             registers.Write(offset, value);
+        }
+
+        public byte ReadByte(long offset)
+        {
+            if(offset == (long)Registers.ReceiveData)
+            {
+                // RXDR has a consuming read: exactly one access, without a
+                // read-modify-write translation of neighboring registers.
+                return (byte)ReadDoubleWord(offset);
+            }
+            this.Log(LogLevel.Warning, "Unsupported byte read at offset 0x{0:X}", offset);
+            return 0;
+        }
+
+        public void WriteByte(long offset, byte value)
+        {
+            if(offset == (long)Registers.TransmitData)
+            {
+                // TXDR accepts a byte directly, including DMA PSIZE=byte.
+                WriteDoubleWord(offset, value);
+                return;
+            }
+            this.Log(LogLevel.Warning, "Unsupported byte write at offset 0x{0:X}", offset);
         }
 
         public override void Reset()
@@ -499,12 +522,17 @@ namespace Antmicro.Renode.Peripherals.I2C
                 {
                     transmitDMARequestOutstanding = true;
                     DMATransmit.Unset();
-                    DMATransmit.Blink();
+                    // TXIS is readiness, not a transient event. Keep it high
+                    // when software has not enabled its DMA descriptor yet;
+                    // writing TXDR clears the outstanding latch and requests
+                    // the next byte without losing a nested transfer.
+                    DMATransmit.Set();
                 }
             }
             else
             {
                 transmitDMARequestOutstanding = false;
+                DMATransmit.Unset();
             }
         }
 
