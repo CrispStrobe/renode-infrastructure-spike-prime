@@ -69,6 +69,7 @@ namespace Antmicro.Renode.Peripherals.I2C
             selectedSlave = null;
             dataToTransfer = null;
             dataToReceive = null;
+            receiveTailPending = false;
             EventInterrupt.Unset();
             ErrorInterrupt.Unset();
 
@@ -105,7 +106,14 @@ namespace Antmicro.Renode.Peripherals.I2C
             var status2 = new DoubleWordRegister(this);
             data = new DoubleWordRegister(this);
 
-            acknowledgeEnable = control1.DefineFlagField(10);
+            acknowledgeEnable = control1.DefineFlagField(10, changeCallback: (oldValue, newValue) =>
+            {
+                // With DR and the shift register occupied, clearing ACK
+                // NACKs the next byte, which is still allowed to arrive.
+                receiveTailPending = oldValue && !newValue && !acknowledgePosition.Value
+                    && state == State.ReceivingData && dataToReceive?.Count == 2;
+            });
+            acknowledgePosition = control1.DefineFlagField(11, name: "POS");
 
             bufferInterruptEnable = control2.DefineFlagField(10, changeCallback: InterruptEnableChange);
             eventInterruptEnable = control2.DefineFlagField(9, changeCallback: InterruptEnableChange);
@@ -123,7 +131,17 @@ namespace Antmicro.Renode.Peripherals.I2C
             transmitterReceiver = status2.DefineFlagField(2, FieldMode.Read);
             masterSlave = status2.DefineFlagField(0, FieldMode.Read, readCallback: (_, __) =>
             {
+                var addressWasPending = addressSentOrMatched.Value;
                 addressSentOrMatched.Value = false;
+                if(addressWasPending && state == State.ReceivingData)
+                {
+                    // Reception starts once the address phase is cleared.
+                    // POS selects the two-byte NACK sequence; otherwise a
+                    // single byte is received with ACK already disabled.
+                    var count = acknowledgeEnable.Value || acknowledgePosition.Value ? 2 : 1;
+                    dataToReceive = new Queue<byte>(selectedSlave.Read(count));
+                    byteTransferFinished.Value = dataToReceive.Count == 2;
+                }
                 Update();
             });
 
@@ -169,12 +187,13 @@ namespace Antmicro.Renode.Peripherals.I2C
                 // halfword accesses translated through ReadDoubleWord.
                 byteTransferFinished.Value = false;
                 Update();
-                // A master receive is a stream, not a single-byte packet.
-                // Keep one byte available while ACK requests another byte;
-                // clearing ACK leaves the already received final byte to drain.
-                if(state == State.ReceivingData && acknowledgeEnable.Value)
+                // DR plus the receive shift register hold two bytes. ACK
+                // permits refilling; the three-byte tail admits one final
+                // in-flight byte after ACK is cleared, then only drains.
+                if(state == State.ReceivingData && (acknowledgeEnable.Value || receiveTailPending))
                 {
                     foreach(var value in selectedSlave.Read(1)) dataToReceive.Enqueue(value);
+                    receiveTailPending = false;
                 }
             }
             else
@@ -182,7 +201,7 @@ namespace Antmicro.Renode.Peripherals.I2C
                 this.Log(LogLevel.Warning, "Tried to read from an empty fifo");
             }
 
-            byteTransferFinished.Value = (dataToReceive != null && dataToReceive.Count > 0);
+            byteTransferFinished.Value = dataToReceive?.Count == 2;
 
             Update();
             return result;
@@ -210,8 +229,9 @@ namespace Antmicro.Renode.Peripherals.I2C
                     if(willReadOnSelectedSlave)
                     {
                         state = State.ReceivingData;
-                        dataToReceive = new Queue<byte>(selectedSlave.Read(1));
-                        byteTransferFinished.Value = true;
+                        dataToReceive = null;
+                        receiveTailPending = false;
+                        byteTransferFinished.Value = false;
                     }
                     else
                     {
@@ -291,6 +311,7 @@ namespace Antmicro.Renode.Peripherals.I2C
             }
             //TODO: TRA cleared on repeated Start condition. Is this always here?
             transmitterReceiver.Value = false;
+            receiveTailPending = false;
             dataRegisterEmpty.Value = false;
             byteTransferFinished.Value = false;
             startBit.Value = true;
@@ -324,7 +345,8 @@ namespace Antmicro.Renode.Peripherals.I2C
         }
 
         private DoubleWordRegister data;
-        private IFlagRegisterField acknowledgeEnable;
+        private IFlagRegisterField acknowledgeEnable, acknowledgePosition;
+        private bool receiveTailPending;
         private IFlagRegisterField bufferInterruptEnable, eventInterruptEnable, errorInterruptEnable;
         private IValueRegisterField dataRegister;
         private IFlagRegisterField acknowledgeFailed, dataRegisterEmpty, dataRegisterNotEmpty, byteTransferFinished, addressSentOrMatched, startBit;

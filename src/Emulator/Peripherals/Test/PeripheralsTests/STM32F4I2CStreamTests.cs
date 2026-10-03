@@ -13,9 +13,10 @@ namespace Antmicro.Renode.PeripheralsTests
     [NonParallelizable]
     public class STM32F4I2CStreamTests
     {
-        [TestCase(1, false)] [TestCase(2, false)] [TestCase(12, false)] [TestCase(32, false)]
-        [TestCase(1, true)] [TestCase(2, true)] [TestCase(12, true)] [TestCase(32, true)]
-        public void ShouldStreamUntilFinalNack(int count, bool halfword)
+        [Test]
+        public void ShouldStreamUntilFinalNack([Values(1, 2, 3, 4, 12, 32)] int count,
+                                               [Values(false, true)] bool halfword,
+                                               [Values(false, true)] bool restart)
         {
             // Other peripheral fixtures may leave disposed machines in the global emulation.
             EmulationManager.Instance.Clear();
@@ -46,16 +47,24 @@ namespace Antmicro.Renode.PeripheralsTests
                 write(0x10,0x20);
                 write(0,0x101);
                 write(0x10,0xd5);
-                write(0,count>1 ? 0x401u : 1u);
-                read(0x18);
+                // Match stm32f40xxx_i2c.c: single-byte STOP, two-byte POS,
+                // or the BTF-only three-byte tail with ACK cleared early.
+                write(0,count==1 ? 1u : count==2 ? 0x801u : 0x401u);
+                read(0x18); // Clear ADDR and start receive shift register.
+                if(count==1) write(0,restart ? 0x101u : 0x201u);
                 for(var i=0;i<count;i++)
                 {
-                    Assert.AreNotEqual(0u,read(0x14)&0x40u);
+                    var remaining=count-i;
+                    if(count>2 && remaining<5) write(4,0x200); // Disable RXNE IRQ.
+                    var status=read(0x14);
+                    Assert.AreNotEqual(0u,status&0x40u);
+                    if(remaining>=2) Assert.AreNotEqual(0u,status&4u, "Two buffered bytes must assert BTF");
+                    if(count>2 && remaining==3) write(0,1);
+                    if(remaining==2) write(0,(restart ? 0x101u : 0x201u) | (count==2 ? 0x800u : 0u));
                     int before=edges.Count;
                     Assert.AreEqual(0x20+i, halfword ? read(0x10) : controller.ReadByte(0x10));
-                    if(i < count-1)
-                        Assert.Greater(edges.Count, before, "Next byte did not reassert the receive IRQ");
-                    if(i==count-2)write(0,1);
+                    if(remaining>2 && remaining<5)
+                        Assert.Greater(edges.Count, before, "Refill did not reassert the receive IRQ");
                 }
                 Assert.AreEqual(count,device.BytesRead);
                 Assert.AreEqual(0u,read(0x14)&0x40u);
