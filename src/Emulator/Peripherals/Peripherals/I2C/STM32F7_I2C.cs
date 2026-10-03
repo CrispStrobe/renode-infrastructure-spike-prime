@@ -499,12 +499,17 @@ namespace Antmicro.Renode.Peripherals.I2C
                 {
                     transmitDMARequestOutstanding = true;
                     DMATransmit.Unset();
-                    DMATransmit.Blink();
+                    // TXIS is readiness, not a transient event. Keep it high
+                    // when software has not enabled its DMA descriptor yet;
+                    // writing TXDR clears the outstanding latch and requests
+                    // the next byte without losing a nested transfer.
+                    DMATransmit.Set();
                 }
             }
             else
             {
                 transmitDMARequestOutstanding = false;
+                DMATransmit.Unset();
             }
         }
 
