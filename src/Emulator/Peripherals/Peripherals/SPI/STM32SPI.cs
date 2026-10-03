@@ -110,6 +110,10 @@ namespace Antmicro.Renode.Peripherals.SPI
             {
                 if(receiveBuffer.TryDequeue(out var value))
                 {
+                    // Consuming a data unit acknowledges its DMA request. If
+                    // more bytes are buffered, Update publishes readiness for
+                    // the next unit, including during a synchronous DMA read.
+                    DMAReceive.Unset();
                     Update();
                     return value;
                 }
@@ -166,7 +170,12 @@ namespace Antmicro.Renode.Peripherals.SPI
             // A CPU read can consume RXNE while DMA is disabled. Withdraw the
             // request when the buffer drains, rather than remembering a pulse
             // for a byte that no longer exists.
-            DMAReceive.Set(spiEnable.Value && rxDmaEnable.Value && rxBufferNotEmpty);
+            RequestReceiveDMA();
+        }
+
+        private void RequestReceiveDMA()
+        {
+            DMAReceive.Set(spiEnable.Value && rxDmaEnable.Value && receiveBuffer.Count != 0);
         }
 
         private void SetupRegisters()
@@ -193,6 +202,7 @@ namespace Antmicro.Renode.Peripherals.SPI
                         IRQ.Unset();
                     }
                     RequestTransmitDMA();
+                    RequestReceiveDMA();
                 }, name: "SpiEnable")
                 .WithFlag(7, name: "LSBFIRST") // Physical
                                                // We keep these as flags to preserve written values. SSI flag is used by drivers to select/detect operation mode (Master or Slave)
