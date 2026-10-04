@@ -1,5 +1,6 @@
 //
 // Copyright (c) 2010-2024 Antmicro
+// Copyright (c) 2026 Brickwright contributors (reset routing correction)
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -58,6 +59,9 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
 
         public void Reset()
         {
+            // Publish the held inputs of the reset-selected bank, rather than
+            // rebuilding outputs using the pre-reset EXTICR selections.
+            registers.Reset();
             foreach(var connection in Connections.Values)
             {
                 connection.Unset();
@@ -69,7 +73,6 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                     receiver.UpdateGPIO(pin);
                 }
             }
-            registers.Reset();
         }
 
         public IReadOnlyDictionary<int, IGPIO> Connections
