@@ -1,5 +1,6 @@
 //
 // Copyright (c) 2010-2025 Antmicro
+// Copyright (c) 2026 Brickwright contributors (terminal completion signals)
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -57,6 +58,17 @@ namespace Antmicro.Renode.Peripherals.DMA
         public long Size => 0x400;
 
         public IReadOnlyDictionary<int, IGPIO> Connections { get; }
+
+        // Independent modeled handshake pulses, not interrupt status levels.
+        // Each pulse acknowledges a successfully completed programmed buffer.
+        public GPIO TransferComplete0 => streams[0].TransferComplete;
+        public GPIO TransferComplete1 => streams[1].TransferComplete;
+        public GPIO TransferComplete2 => streams[2].TransferComplete;
+        public GPIO TransferComplete3 => streams[3].TransferComplete;
+        public GPIO TransferComplete4 => streams[4].TransferComplete;
+        public GPIO TransferComplete5 => streams[5].TransferComplete;
+        public GPIO TransferComplete6 => streams[6].TransferComplete;
+        public GPIO TransferComplete7 => streams[7].TransferComplete;
 
         private void DefineRegisters()
         {
@@ -164,6 +176,7 @@ namespace Antmicro.Renode.Peripherals.DMA
                 initialNrOfData = 0;
                 pendingPeripheralRequest = false;
                 IRQ.Unset();
+                TransferComplete.Unset();
             }
 
             public void OnGPIO(bool value)
@@ -208,6 +221,8 @@ namespace Antmicro.Renode.Peripherals.DMA
             }
 
             public IGPIO IRQ { get; } = new GPIO();
+
+            public GPIO TransferComplete { get; } = new GPIO();
 
             public bool TransferCompleteIrqEnable => transferCompleteIrqEnable.Value;
 
@@ -363,6 +378,17 @@ namespace Antmicro.Renode.Peripherals.DMA
                         else
                         {
                             isEnabled.Value = false;
+                        }
+                        // Publish completion after committed buffer state, before
+                        // an IRQ consumer can synchronously rearm the peripheral.
+                        // Unlike TCIF/IRQ, every circular buffer gets a pulse.
+                        try
+                        {
+                            TransferComplete.Set();
+                        }
+                        finally
+                        {
+                            TransferComplete.Unset();
                         }
                         parent.UpdateInterrupts();
                     }
