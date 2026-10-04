@@ -1,5 +1,6 @@
 //
 // Copyright (c) 2010-2025 Antmicro
+// Copyright (c) 2026 Brickwright contributors (EOC publication ordering)
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -304,6 +305,13 @@ namespace Antmicro.Renode.Peripherals.Analog
             // Set data register and trigger DMA request
             currentChannel.PrepareSample();
             adcData = currentChannel.GetSample();
+            var scanModeActive = scanMode.Value && currentChannelIdx < regularSequenceLen - 1;
+            var scanModeFinished = scanMode.Value && currentChannelIdx == regularSequenceLen - 1;
+
+            // Publish EOC with the result before DMA can synchronously read ADC_DR.
+            // That read clears EOC; do not restore the flag after DMA returns.
+            endOfConversion.Value = scanModeActive ? (endOfConversionSelect.Value || scanModeFinished) : true;
+
             if(dmaEnabled.Value && dmaIssueRequest.Value)
             {
                 // Issue DMA peripheral request, which when mapped to DMA
@@ -311,12 +319,6 @@ namespace Antmicro.Renode.Peripherals.Analog
                 DMARequest.Set();
                 DMARequest.Unset();
             }
-
-            var scanModeActive = scanMode.Value && currentChannelIdx < regularSequenceLen - 1;
-            var scanModeFinished = scanMode.Value && currentChannelIdx == regularSequenceLen - 1;
-
-            // Signal EOC if EOCS set with scan mode enabled and finished or we finished scanning regular group
-            endOfConversion.Value = scanModeActive ? (endOfConversionSelect.Value || scanModeFinished) : true;
 
             // Iterate to next channel
             currentChannelIdx = (currentChannelIdx + 1) % regularSequenceLen;
