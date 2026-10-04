@@ -1,5 +1,6 @@
 //
 // Copyright (c) 2010-2026 Antmicro
+// Copyright (c) 2026 CrispStrobe (fast-read address-mode correction)
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -267,9 +268,9 @@ namespace Antmicro.Renode.Peripherals.SPI
                 currentOperation.AddressLength = 3;
                 break;
             case (byte)Commands.FastRead:
-                // fast read - 3 bytes of address + a dummy byte
+                // Fast read follows the selected address mode, then a dummy byte.
                 currentOperation.Operation = DecodedOperation.OperationType.ReadFast;
-                currentOperation.AddressLength = 3;
+                currentOperation.AddressLength = NumberOfAddressBytes;
                 currentOperation.State = DecodedOperation.OperationState.AccumulateCommandAddressBytes;
                 break;
             case (byte)Commands.Read:
