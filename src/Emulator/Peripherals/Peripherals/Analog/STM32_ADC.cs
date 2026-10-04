@@ -1,6 +1,6 @@
 //
 // Copyright (c) 2010-2025 Antmicro
-// Copyright (c) 2026 Brickwright contributors (EOC publication ordering)
+// Copyright (c) 2026 Brickwright contributors (EOC ordering and DMA terminal handshake)
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -59,9 +59,20 @@ namespace Antmicro.Renode.Peripherals.Analog
             samplingTimer.LimitReached += OnConversionFinished;
         }
 
-        // GPIO input number is the CR2 EXTSEL value for the wired trigger.
+        // Inputs 0..15 are CR2 EXTSEL trigger selectors. Input 16 is an
+        // explicit model-only DMA terminal acknowledgement, not a physical pin.
         public void OnGPIO(int number, bool value)
         {
+            if(number == DmaTransferCompleteInput)
+            {
+                // The current DMA services ADC requests synchronously. A reused
+                // stream completing for another producer must not suppress ADC.
+                if(value && DMARequest.IsSet && dmaEnabled.Value && !dmaIssueRequest.Value)
+                {
+                    dmaRequestsSuppressed = true;
+                }
+                return;
+            }
             if(number < 0 || number > 15) throw new RecoverableException("ADC trigger selector must be 0-15");
             var previous = triggerLevels[number];
             triggerLevels[number] = value;
@@ -83,6 +94,7 @@ namespace Antmicro.Renode.Peripherals.Analog
             adcData = 0;
             IRQ.Unset();
             DMARequest.Unset();
+            dmaRequestsSuppressed = false;
             System.Array.Clear(triggerLevels, 0, triggerLevels.Length);
             foreach(var c in channels)
             {
@@ -135,6 +147,7 @@ namespace Antmicro.Renode.Peripherals.Analog
         public GPIO DMARequest { get; } = new GPIO();
 
         public const int NumberOfChannels = 19;
+        public const int DmaTransferCompleteInput = 16;
 
         private bool IsValidChannel(uint channelIdx)
         {
@@ -180,7 +193,8 @@ namespace Antmicro.Renode.Peripherals.Analog
                      changeCallback: (_, val) => { if(val) { EnableADC(); } })
                .WithFlag(1, out continuousConversion, name: "Continous conversion")
                .WithReservedBits(2, 6)
-               .WithFlag(8, out dmaEnabled, name: "Direct memory access mode")
+               .WithFlag(8, out dmaEnabled, name: "Direct memory access mode",
+                     changeCallback: (_, value) => { if(value) dmaRequestsSuppressed = false; })
                .WithFlag(9, out dmaIssueRequest, name: "DMA disable selection")
                .WithFlag(10, out endOfConversionSelect, name: "End of conversion select")
                .WithTaggedFlag("Data Alignment", 11)
@@ -312,12 +326,18 @@ namespace Antmicro.Renode.Peripherals.Analog
             // That read clears EOC; do not restore the flag after DMA returns.
             endOfConversion.Value = scanModeActive ? (endOfConversionSelect.Value || scanModeFinished) : true;
 
-            if(dmaEnabled.Value && dmaIssueRequest.Value)
+            if(dmaEnabled.Value && !dmaRequestsSuppressed)
             {
                 // Issue DMA peripheral request, which when mapped to DMA
                 // controller will trigger a peripheral to memory transfer
-                DMARequest.Set();
-                DMARequest.Unset();
+                try
+                {
+                    DMARequest.Set();
+                }
+                finally
+                {
+                    DMARequest.Unset();
+                }
             }
 
             // Iterate to next channel
@@ -358,6 +378,9 @@ namespace Antmicro.Renode.Peripherals.Analog
         private IValueRegisterField externalTriggerSelection;
         private IValueRegisterField externalTriggerEdge;
 
+        // RM0430 13.8.1: DDS=0 suppresses requests only after the DMA
+        // controller completes its buffer. Only DMA 0->1 or ADC reset rearms.
+        private bool dmaRequestsSuppressed;
         private IFlagRegisterField dmaEnabled;
         private IFlagRegisterField dmaIssueRequest;
 
