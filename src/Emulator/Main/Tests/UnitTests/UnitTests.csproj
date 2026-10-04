@@ -35,6 +35,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="ReadExtensionsTest.cs" />
+    <Compile Include="ConsoleIOSourceTests.cs" />
     <Compile Include="WriteExtensionsTest.cs" />
     <Compile Include="GPIOTests.cs" />
     <Compile Include="SerializationTests.cs" />

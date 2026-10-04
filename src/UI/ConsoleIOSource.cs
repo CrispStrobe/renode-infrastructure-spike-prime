@@ -1,11 +1,13 @@
 //
 // Copyright (c) 2010-2025 Antmicro
+// Copyright (c) 2026 CrispStrobe (redirected-input EOF handling)
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
 //
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 using Antmicro.Renode.Utilities;
 
@@ -87,10 +89,29 @@ namespace Antmicro.Renode.UI
 
         private void RedirectedHandling()
         {
-            // For cases in which input has been redirected from a file
+            ReadRedirectedInput(Console.In, () => ByteRead,
+                () => System.Threading.Thread.Sleep(10));
+        }
+
+        private static void ReadRedirectedInput(TextReader reader,
+            Func<Action<int>> getByteRead, Action waitForSubscriber)
+        {
             while(true)
             {
-                ByteRead?.Invoke(Console.Read());
+                // Preserve piped input until a subscriber attaches, without
+                // spinning. Capture its delegate before the blocking read.
+                var handler = getByteRead();
+                if(handler == null)
+                {
+                    waitForSubscriber();
+                    continue;
+                }
+                var value = reader.Read();
+                if(value < 0)
+                {
+                    return;
+                }
+                handler(value);
             }
         }
 
