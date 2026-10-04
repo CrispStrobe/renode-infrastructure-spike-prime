@@ -72,6 +72,7 @@
     <Compile Include="Cadence_UARTTests.cs" />
     <Compile Include="STM32_UARTTests.cs" />
     <Compile Include="STM32F7I2CTests.cs" />
+    <Compile Include="STM32CRCTests.cs" />
     <Compile Include="TLC5955Tests.cs" />
     <Compile Include="ST7586Tests.cs" />
     <Compile Include="PrimeButtonLadderTests.cs" />
