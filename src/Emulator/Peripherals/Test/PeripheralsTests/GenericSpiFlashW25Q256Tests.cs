@@ -64,6 +64,55 @@ namespace Antmicro.Renode.PeripheralsTests
             CollectionAssert.AreEqual(new byte[] { 0x11, 0x22, 0x33 }, result);
         }
 
+        // Winbond W25Q256JV Rev. I, sections 8.2.8/8.2.9/8.2.12:
+        // 0Bh follows B7h/E9h addressing mode and still takes one dummy byte.
+        [TestCase(0)]
+        [TestCase(1)]
+        [TestCase(2)]
+        public void ShouldFastReadUsingSelectedAddressMode(int modeTransitions)
+        {
+            memory.WriteBytes(0x001010, new byte[] { 0x31, 0x42, 0x53 });
+            memory.WriteBytes(0x01001010, new byte[] { 0xA6, 0xB7, 0xC8 });
+            // Decoy where a three-byte decoder would land on the high address.
+            memory.WriteBytes(0x010010, new byte[] { 0xD1, 0xE2, 0xF3 });
+
+            if(modeTransitions >= 1) Execute(0xB7);
+            if(modeTransitions == 2) Execute(0xE9);
+
+            var fourByteMode = modeTransitions == 1;
+            var address = fourByteMode
+                ? new byte[] { 0x01, 0x00, 0x10, 0x10 }
+                : new byte[] { 0x00, 0x10, 0x10 };
+            var expected = fourByteMode
+                ? new byte[] { 0xA6, 0xB7, 0xC8 }
+                : new byte[] { 0x31, 0x42, 0x53 };
+
+            Begin(0x0B, address, new byte[] { 0xFF });
+            var result = Clock(expected.Length);
+            flash.FinishTransmission();
+
+            CollectionAssert.AreEqual(expected, result);
+        }
+
+        // Unlike 0Bh, dedicated 0Ch always takes four address bytes.
+        [TestCase(0)]
+        [TestCase(1)]
+        [TestCase(2)]
+        public void ShouldKeepDedicatedFourByteFastReadIndependentOfAddressMode(int modeTransitions)
+        {
+            memory.WriteBytes(0x01001010, new byte[] { 0xA6, 0xB7, 0xC8 });
+            memory.WriteBytes(0x010010, new byte[] { 0xD1, 0xE2, 0xF3 });
+
+            if(modeTransitions >= 1) Execute(0xB7);
+            if(modeTransitions == 2) Execute(0xE9);
+
+            Begin(0x0C, new byte[] { 0x01, 0x00, 0x10, 0x10 }, new byte[] { 0xFF });
+            var result = Clock(3);
+            flash.FinishTransmission();
+
+            CollectionAssert.AreEqual(new byte[] { 0xA6, 0xB7, 0xC8 }, result);
+        }
+
         [Test]
         public void ShouldApplyNorProgrammingRulesAndRequireWriteEnable()
         {
