@@ -1,6 +1,6 @@
 //
 // Copyright (c) 2010-2025 Antmicro
-// Copyright (c) 2026 Brickwright contributors (terminal completion signals and stream rearm)
+// Copyright (c) 2026 Brickwright contributors (terminal completion signals, stream rearm and queued request retention)
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -175,19 +175,21 @@ namespace Antmicro.Renode.Peripherals.DMA
                 dataOffset = 0;
                 initialNrOfData = 0;
                 pendingPeripheralRequest = false;
+                requestLineHigh = false;
                 IRQ.Unset();
                 TransferComplete.Unset();
             }
 
             public void OnGPIO(bool value)
             {
+                requestLineHigh = value;
                 if(!value)
                 {
-                    // A falling edge during an active transmit copy can be
+                    // A falling edge during an active copy can be
                     // the end of a queued byte-request pulse. Preserve that
                     // deferred request until the copy returns. At rest, a low
                     // line cancels readiness retained for the next descriptor.
-                    if(direction.Value == Direction.PeripheralToMemory || !transferInProgress)
+                    if(!transferInProgress)
                     {
                         pendingPeripheralRequest = false;
                     }
@@ -296,6 +298,9 @@ namespace Antmicro.Renode.Peripherals.DMA
                 continuationScheduled = false;
                 if(!enabled)
                 {
+                    // Ended pulses queued by the old descriptor are invalid,
+                    // but a still-high line remains live peripheral readiness.
+                    pendingPeripheralRequest = requestLineHigh;
                     return;
                 }
 
@@ -553,6 +558,7 @@ namespace Antmicro.Renode.Peripherals.DMA
             private ulong dataOffset;
             private ulong initialNrOfData;
             private bool pendingPeripheralRequest;
+            private bool requestLineHigh;
             private bool transferInProgress;
             private bool continuationScheduled;
             private ulong transferGeneration;
