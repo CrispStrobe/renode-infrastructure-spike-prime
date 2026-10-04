@@ -1,6 +1,7 @@
 //
 // Copyright (c) 2010-2024 Antmicro
 // Copyright (c) 2022 Pieter Agten
+// Copyright (c) 2026 Christian Strobele
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -153,11 +154,13 @@ namespace Antmicro.Renode.Peripherals.CRC
 
         private void UpdateCRC(uint value, int bytesCount)
         {
-            if(reverseInputData.Value == BitReversal.ByByte)
+            // F4 has no REV_IN field: its fixed input order is unreversed.
+            var reversal = reverseInputData?.Value ?? BitReversal.Disabled;
+            if(reversal == BitReversal.ByByte)
             {
                 value = BitHelper.ReverseBitsByByte(value);
             }
-            else if(reverseInputData.Value == BitReversal.ByWord)
+            else if(reversal == BitReversal.ByWord)
             {
                 switch(bytesCount)
                 {
@@ -170,7 +173,7 @@ namespace Antmicro.Renode.Peripherals.CRC
                     break;
                 }
             }
-            else if(reverseInputData.Value == BitReversal.ByDoubleWord)
+            else if(reversal == BitReversal.ByDoubleWord)
             {
                 switch(bytesCount)
                 {
