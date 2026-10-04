@@ -46,6 +46,7 @@
     <Compile Include="CortexA9GICTests.cs" />
     <Compile Include="STM32ADCDMAInitialRequestsTests.cs" />
     <Compile Include="STM32ADCDMATests.cs" />
+    <Compile Include="STM32DMAAbortRearmTests.cs" />
     <Compile Include="TI_DA8xx_AINTCTests.cs" />
     <Compile Include="TI_DA8xx_EDMA3CCTests.cs" />
     <Compile Include="TI_DA8xx_EDMA3TCTests.cs" />

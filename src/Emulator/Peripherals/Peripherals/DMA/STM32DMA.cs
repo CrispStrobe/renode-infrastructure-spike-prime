@@ -1,6 +1,6 @@
 //
 // Copyright (c) 2010-2025 Antmicro
-// Copyright (c) 2026 Brickwright contributors (terminal completion signals)
+// Copyright (c) 2026 Brickwright contributors (terminal completion signals and stream rearm)
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -231,7 +231,7 @@ namespace Antmicro.Renode.Peripherals.DMA
                 var streamOffset = id * StreamStep;
 
                 (Registers.StreamConfiguration + streamOffset).Define(parent)
-                    .WithFlag(0, out isEnabled, name: "EN", writeCallback: (_, value) => HandleEnable(value))
+                    .WithFlag(0, out isEnabled, name: "EN")
                     .WithTaggedFlag("DMEIE", 1)
                     .WithTaggedFlag("TEIE", 2)
                     .WithTaggedFlag("HTIE", 3)
@@ -254,7 +254,13 @@ namespace Antmicro.Renode.Peripherals.DMA
                     // TCIF remains latched while TCIE is masked. Recompute
                     // the line after all stream fields have been written so
                     // masking and unmasking also affect an existing flag.
-                    .WithWriteCallback((_, __) => parent.UpdateInterrupts());
+                    .WithWriteCallback((previous, value) =>
+                    {
+                        // Enable acts on the complete descriptor, after DIR,
+                        // widths and increments in this write have committed.
+                        HandleEnable((previous & 1) != 0, (value & 1) != 0);
+                        parent.UpdateInterrupts();
+                    });
 
                 (Registers.StreamNumberOfData + streamOffset).Define(parent)
                     .WithValueField(0, 16, out nrOfData, name: "NDT",
@@ -279,26 +285,50 @@ namespace Antmicro.Renode.Peripherals.DMA
                     .WithReservedBits(8, 24);
             }
 
-            private void HandleEnable(bool value)
+            private void HandleEnable(bool wasEnabled, bool enabled)
             {
-                if(!value)
+                // An EN=1 control/interrupt-mask write is not a new descriptor.
+                if(wasEnabled == enabled)
                 {
-                    transferGeneration++;
-                    continuationScheduled = false;
                     return;
                 }
-                if(value && direction.Value == Direction.MemoryToMemory)
+                transferGeneration++;
+                continuationScheduled = false;
+                if(!enabled)
                 {
-                    PerformTransfer();
+                    return;
                 }
-                else if(value && direction.Value != Direction.MemoryToMemory && pendingPeripheralRequest)
+
+                // RM0430: enabling reloads working addresses and the last
+                // software-programmed NDTR. To resume a suspended stream,
+                // software must write the residual count and adjusted bases.
+                dataOffset = 0;
+                nrOfData.Value = initialNrOfData;
+                if(transferInProgress)
+                {
+                    // A bus callback can abort and rearm during IssueCopy.
+                    // The old generation cannot start or finish this descriptor;
+                    // defer its first request until the old copy has returned.
+                    var generation = transferGeneration;
+                    continuationScheduled = true;
+                    parent.machine.ScheduleAction(TimeInterval.FromMicroseconds(1), _ =>
+                    {
+                        if(generation != transferGeneration)
+                        {
+                            return;
+                        }
+                        continuationScheduled = false;
+                        if(isEnabled.Value && (direction.Value == Direction.MemoryToMemory || pendingPeripheralRequest))
+                        {
+                            PerformTransfer();
+                        }
+                    });
+                    return;
+                }
+                if(direction.Value == Direction.MemoryToMemory || pendingPeripheralRequest)
                 {
                     pendingPeripheralRequest = false;
                     PerformTransfer();
-                }
-                else if(value)
-                {
-                    pendingPeripheralRequest = false;
                 }
             }
 
