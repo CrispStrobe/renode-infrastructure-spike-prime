@@ -2,7 +2,7 @@
 
 Recorded 2026-10-05. This repository owns hardware models, not the editor's robot
 program runner. Read the current source/tests before claiming work. The
-[Runtime handover](https://github.com/CrispStrobe/renode-spike-prime/blob/main/docs/SPIKE-STATUS-AND-LANES.md)
+[Runtime handover](https://github.com/CrispStrobe/renode-spike-prime/blob/0bb3f3e40ec8e84afe6c7a63a03374a5a0553969/docs/SPIKE-STATUS-AND-LANES.md)
 owns board wiring, staging and guest checks; the
 [firmware handover](https://github.com/CrispStrobe/brickwright-spike-prime-fw/blob/main/docs/project/next-steps.md)
 owns drivers and controller semantics. Proposed tasks below are not active claims.
