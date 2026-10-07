@@ -42,16 +42,37 @@ namespace Antmicro.Renode.Peripherals.UART
         }
         public void Tick()
         {
-            if(Device == null) return;
             // UART devices present an open ID1 signature and grounded ID2.
             // The host TX probe controls ID1 only while TX is GPIO output.
             if(Mode(id1Gpio,id1Pin)==0)
                 id1Gpio.OnGPIO(id1Pin,Mode(txGpio,txPin)==1 ? Level(txGpio,txPin) : true);
-            if(Mode(id2Gpio,id2Pin)==0) id2Gpio.OnGPIO(id2Pin,false);
-            if(Mode(rxGpio,rxPin)==0) rxGpio.OnGPIO(rxPin,false);
+            // ID2 and RX share connector pin 6 in our board contract. Without
+            // a device, a host GPIO drive is visible at the other input. The
+            // undriven virtual line resolves to UART idle high; this explicit
+            // synthetic policy does not model a physical pull resistor.
+            if(Mode(id2Gpio,id2Pin)==0)
+                id2Gpio.OnGPIO(id2Pin,Device == null && (Mode(rxGpio,rxPin)!=1 || Level(rxGpio,rxPin)));
+            if(Mode(rxGpio,rxPin)==0)
+                rxGpio.OnGPIO(rxPin,Device == null && (Mode(id2Gpio,id2Pin)!=1 || Level(id2Gpio,id2Pin)));
             var motor=Device as Lpf2ElectricalMotor;
             if(motor != null && bridgeGpio != null)
             {
+                motor.SetDrive(BridgeDrive,BridgeBraking);
+            }
+            // Discovery starts after the unchanged driver switches TX to UART.
+            // Mechanics keep advancing while UART is unavailable; discovery does not.
+            // A detached UART port still advances time but emits no device data.
+            if(Mode(txGpio,txPin)==2) AdvanceEmulatedTime(1000);
+            else motor?.Advance(1);
+        }
+        // Read the actual bridge registers even when Device is null. These
+        // observers neither cache demand nor clear a guest's leftover PWM.
+        // Sample on a paused machine for a coherent multi-register observation.
+        public int BridgeDrive
+        {
+            get
+            {
+                if(bridgeGpio == null) return 0;
                 var mode1=Mode(bridgeGpio,bridgePin1); var mode2=Mode(bridgeGpio2,bridgePin2);
                 var high1=Level(bridgeGpio,bridgePin1); var high2=Level(bridgeGpio2,bridgePin2);
                 var running=(bridgeTimer.ReadDoubleWord(0)&1)!=0 && bridgeTimer.Enabled
@@ -62,13 +83,11 @@ namespace Antmicro.Renode.Peripherals.UART
                     drive=(int)Math.Min(10000UL,(ulong)bridgeTimer.ReadDoubleWord(0x34+4*(channel1-1))*10000/period);
                 else if(running && mode2==2 && mode1==1 && high1 && IsDriveChannel(bridgeGpio2,bridgePin2,channel2))
                     drive=-(int)Math.Min(10000UL,(ulong)bridgeTimer.ReadDoubleWord(0x34+4*(channel2-1))*10000/period);
-                motor.SetDrive(drive,mode1==1 && mode2==1 && high1 && high2);
+                return drive;
             }
-            // Discovery starts after the unchanged driver switches TX to UART.
-            // Mechanics keep advancing while UART is unavailable; discovery does not.
-            if(Mode(txGpio,txPin)==2) AdvanceEmulatedTime(1000);
-            else motor?.Advance(1);
         }
+        public bool BridgeBraking => bridgeGpio != null && Mode(bridgeGpio,bridgePin1)==1
+            && Mode(bridgeGpio2,bridgePin2)==1 && Level(bridgeGpio,bridgePin1) && Level(bridgeGpio2,bridgePin2);
         public new void Attach(string device)
         {
             if(device == "motor" || device == "medium-motor") AttachDevice(new Lpf2ElectricalMotor());

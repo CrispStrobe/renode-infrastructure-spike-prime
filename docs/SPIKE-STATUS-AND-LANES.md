@@ -85,6 +85,10 @@ is doable now; complete reference boot is a separate input-gated result.
 
 ## M04 — Generalize evidenced LPF2 attachment and device coverage
 
+The [electrical attachment candidate](SPIKE-ELECTRICAL-ATTACHMENT.md) specifies
+detached input resolution and unmasked bridge-demand observations. Its local
+source-compiled controls are separate from full Runtime/guest qualification.
+
 **Start:** `src/Emulator/Peripherals/Peripherals/UART/LegoLpf2Port.cs`,
 `LegoLpf2ElectricalPort.cs` in that directory and their corresponding tests under
 `src/Emulator/Peripherals/Test/PeripheralsTests/`; Runtime
