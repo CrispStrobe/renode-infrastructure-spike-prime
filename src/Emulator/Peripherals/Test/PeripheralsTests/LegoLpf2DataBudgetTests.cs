@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Brickwright contributors
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Antmicro.Renode.Peripherals.UART;
@@ -181,6 +182,108 @@ namespace Antmicro.Renode.PeripheralsTests
             Assert.AreEqual(0, buffered.PendingTransmitBytes);
             buffered.WriteChar(0x02);
             CollectionAssert.AreEqual(expected, delivered);
+        }
+
+        [Test]
+        public void ShouldHandleOutputModeAndErrorsWhileDataIsSuppressed()
+        {
+            var motor = new Lpf2MediumMotor();
+            port.AttachDevice(motor);
+            port.StartNegotiation();
+            port.WriteChar(0x04);
+            output.Clear();
+            port.SetDataReportBudget(0);
+            SendFrame(0xc0, 70);
+            Assert.AreEqual(70, motor.Power);
+            SendFrame(0x43, 2);
+            Assert.AreEqual(2, port.SelectedMode);
+            Assert.IsEmpty(output);
+            port.WriteChar(0x43);
+            port.WriteChar(0);
+            port.WriteChar(0); // Invalid checksum: must still emit control NACK.
+            CollectionAssert.AreEqual(new byte[] {0x02}, output);
+            Assert.AreEqual(1, port.InvalidFrames);
+            Assert.AreEqual(2, port.SelectedMode);
+            Assert.AreEqual(0, port.DataReportsRemaining);
+        }
+
+        [Test]
+        public void ShouldNotConsumeAllowanceForInvalidPayload()
+        {
+            port.AttachDevice(new OversizePayloadDevice());
+            port.StartNegotiation();
+            output.Clear();
+            port.SetDataReportBudget(1);
+            Assert.Throws<InvalidOperationException>(() => port.WriteChar(0x04));
+            Assert.IsEmpty(output);
+            Assert.AreEqual(1, port.DataReportsRemaining);
+            port.Attach("ultrasonic");
+            port.StartNegotiation();
+            output.Clear();
+            port.WriteChar(0x04);
+            CollectionAssert.AreEqual(Report, output);
+            Assert.AreEqual(0, port.DataReportsRemaining);
+        }
+
+        [Test]
+        public void ShouldPreserveExhaustedBudgetAcrossReconnection()
+        {
+            Stream();
+            port.SetDataReportBudget(1);
+            port.WriteChar(0x02);
+            port.Detach();
+            port.Attach("ultrasonic");
+            port.StartNegotiation();
+            output.Clear();
+            port.WriteChar(0x04);
+            port.WriteChar(0x02);
+            port.AdvanceEmulatedTime(100000);
+            Assert.IsEmpty(output);
+            Assert.IsTrue(port.DataReportsLimited);
+            Assert.AreEqual(0, port.DataReportsRemaining);
+        }
+
+        [Test]
+        public void ShouldResumeAtExistingCadenceWithoutReplayingSuppressedFrames()
+        {
+            Stream();
+            port.SetDataReportBudget(0);
+            port.AdvanceEmulatedTime(250000);
+            Assert.IsEmpty(output);
+            port.ResumeDataReports();
+            Assert.IsEmpty(output);
+            port.AdvanceEmulatedTime(49999);
+            Assert.IsEmpty(output);
+            port.AdvanceEmulatedTime(1);
+            CollectionAssert.AreEqual(Report, output);
+        }
+
+        [Test]
+        public void ShouldReplaceRemainingBudgetWithoutImmediateEmission()
+        {
+            Stream();
+            port.SetDataReportBudget(10);
+            port.SetDataReportBudget(1);
+            Assert.IsEmpty(output);
+            port.WriteChar(0x02);
+            port.WriteChar(0x02);
+            CollectionAssert.AreEqual(Report, output);
+            port.SetDataReportBudget(1);
+            CollectionAssert.AreEqual(Report, output);
+            port.WriteChar(0x02);
+            CollectionAssert.AreEqual(Report.Concat(Report), output);
+        }
+
+        private sealed class OversizePayloadDevice : ILpf2Device
+        {
+            public byte TypeId => 1;
+            public string Name => "Synthetic oversized payload";
+            public IReadOnlyList<Lpf2Mode> Modes => new[] {new Lpf2Mode(0, "TEST", 1, Lpf2DataType.Int8)};
+            public uint ReportIntervalMicroseconds => 100000;
+            public byte[] ReadMode(byte mode) => new byte[33];
+            public void AcceptOutput(byte mode, byte[] payload) { }
+            public void Advance(uint milliseconds) { }
+            public void Reset() { }
         }
 
         private void Stream()

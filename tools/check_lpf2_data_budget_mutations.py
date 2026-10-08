@@ -8,6 +8,7 @@ and produce NUnit assertion failures; build/setup failures are not detections.
 Original model bytes and the baseline compiled test assembly are restored.
 """
 import argparse
+import hashlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -28,6 +29,7 @@ def results(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--runtime-root', type=Path, required=True)
+    parser.add_argument('--results-directory', type=Path)
     args = parser.parse_args()
     root = args.runtime_root.resolve()
     infrastructure = root / 'src/Infrastructure'
@@ -55,46 +57,71 @@ def main():
     command = ['dotnet', 'test', str(project), '--configuration', 'Release', '--no-restore',
                '-p:GUI_DISABLED=true', '-p:CurrentPlatform=Linux', '-p:NET=true',
                '--filter', FILTER, '--logger', 'trx;LogFileName=tests.trx']
-    with tempfile.TemporaryDirectory(prefix='lpf2-data-budget-') as directory:
-        output = Path(directory)
+    if args.results_directory is None:
+        output = Path(tempfile.mkdtemp(prefix='lpf2-data-budget-'))
+    else:
+        output = args.results_directory.resolve()
+        output.mkdir(parents=True, exist_ok=False)
+    expected_names = None
 
-        def check(name, expect_failure):
-            folder = output / name
-            folder.mkdir()
-            completed = subprocess.run(command + ['--results-directory', str(folder)],
-                                       cwd=root, capture_output=True, text=True, timeout=600)
-            (folder / 'dotnet.log').write_text(completed.stdout + completed.stderr)
-            receipt = folder / 'tests.trx'
-            if not receipt.is_file():
-                raise RuntimeError(name + ': no test receipt; build/setup failure is not a detection\n'
-                                   + completed.stdout[-6000:] + completed.stderr[-2000:])
-            nodes, failed = results(receipt)
-            if len(nodes) < 13 or any(n.get('outcome') not in ('Passed', 'Failed') for n in nodes):
-                raise RuntimeError(name + ': incomplete test execution')
-            if expect_failure:
-                if completed.returncode == 0 or not failed:
-                    raise RuntimeError(name + ': mutation escaped assertions')
-                for node in failed:
-                    message = node.findtext('.//{*}ErrorInfo/{*}Message', '')
-                    if not any(word in message for word in ('Expected', 'expected', 'Assert')):
-                        raise RuntimeError(name + ': non-assertion test failure: ' + message)
-                print(name + ': detected by %d failed assertions' % len(failed))
-            else:
-                if completed.returncode != 0 or failed:
-                    raise RuntimeError(name + ': baseline failed\n' + completed.stdout[-6000:])
-                print(name + ': %d tests passed' % len(nodes))
-
-        check('baseline', False)
+    def check(name, expect_failure):
+        nonlocal expected_names
+        folder = output / name
+        folder.mkdir()
         try:
-            for name, old, new in mutations:
-                model.write_text(source.replace(old, new))
-                check(name, True)
-        finally:
-            model.write_bytes(original)
-            # Test rebuild also restores the real compiled model, not just text.
-            check('restored-baseline', False)
-        if model.read_bytes() != original:
-            raise RuntimeError('Original model bytes were not restored')
+            completed = subprocess.run(command + ['--results-directory', str(folder)],
+                                       cwd=root, capture_output=True, timeout=600)
+        except subprocess.TimeoutExpired as error:
+            (folder / 'stdout.log').write_bytes(error.stdout or b'')
+            (folder / 'stderr.log').write_bytes(error.stderr or b'')
+            raise RuntimeError(name + ': compiler/test timeout; partial output retained') from error
+        (folder / 'stdout.log').write_bytes(completed.stdout)
+        (folder / 'stderr.log').write_bytes(completed.stderr)
+        (folder / 'dotnet.log').write_bytes(completed.stdout + completed.stderr)
+        receipt = folder / 'tests.trx'
+        if not receipt.is_file():
+            raise RuntimeError(name + ': no test receipt; build/setup failure is not a detection\n'
+                                   + completed.stdout[-6000:].decode('utf-8', 'replace')
+                                   + completed.stderr[-2000:].decode('utf-8', 'replace'))
+        nodes, failed = results(receipt)
+        if len(nodes) < 18 or any(n.get('outcome') not in ('Passed', 'Failed') for n in nodes):
+            raise RuntimeError(name + ': incomplete test execution')
+        names = {node.get('testName') for node in nodes}
+        if None in names or len(names) != len(nodes):
+            raise RuntimeError(name + ': missing or duplicate test identities')
+        if expected_names is None:
+            expected_names = names
+        elif names != expected_names:
+            raise RuntimeError(name + ': executed test identities changed')
+        print(name + ': TRX sha256=' + hashlib.sha256(receipt.read_bytes()).hexdigest())
+        print(name + ': build log sha256=' + hashlib.sha256((folder / 'dotnet.log').read_bytes()).hexdigest())
+        if expect_failure:
+            if completed.returncode == 0 or not failed:
+                raise RuntimeError(name + ': mutation escaped assertions')
+            for node in failed:
+                message = node.findtext('.//{*}ErrorInfo/{*}Message', '')
+                if not any(word in message for word in ('Expected', 'expected', 'Assert')):
+                    raise RuntimeError(name + ': non-assertion test failure: ' + message)
+            for node in failed:
+                print(name + ': failed assertion ' + node.get('testName'))
+            print(name + ': detected by %d failed assertions' % len(failed))
+        else:
+            if completed.returncode != 0 or failed:
+                raise RuntimeError(name + ': baseline failed\n'
+                                   + completed.stdout[-6000:].decode('utf-8', 'replace'))
+            print(name + ': %d tests passed' % len(nodes))
+
+    check('baseline', False)
+    try:
+        for name, old, new in mutations:
+            model.write_text(source.replace(old, new))
+            check(name, True)
+    finally:
+        model.write_bytes(original)
+        # Test rebuild also restores the real compiled model, not just text.
+        check('restored-baseline', False)
+    if model.read_bytes() != original:
+        raise RuntimeError('Original model bytes were not restored')
 
 
 if __name__ == '__main__':

@@ -45,8 +45,9 @@ record any session loss explicitly.
 
 `LegoLpf2DataBudgetTests` compares actual UART byte output for each producer and
 mixed producers, discovery preservation, continued clock/motor movement,
-synchronous subscriber reentry, attachment/reset policy, maximum allowance and
-pre-existing queued output. The retained LPF2, electrical and complete peripheral
+synchronous subscriber reentry, attachment/reset policy, maximum allowance,
+pre-existing queued output, suppressed output/mode/error handling, invalid payloads,
+exhausted reconnection and cadence-preserving resume. Eighteen cases are declared. The retained LPF2, electrical and complete peripheral
 suites must also pass against the exact source-built Runtime/Infrastructure pair.
 The new fixture is included by the SDK project and listed in the retained NUnit
 project; that listing alone is not a claim of a complete Mono build.
@@ -59,15 +60,24 @@ dotnet test src/Infrastructure/src/Emulator/Peripherals/Test/PeripheralsTests/Pe
   -p:GUI_DISABLED=true -p:CurrentPlatform=Linux -p:NET=true \
   --filter 'FullyQualifiedName~LegoLpf2DataBudgetTests' \
   --logger 'console;verbosity=normal'
-python3 src/Infrastructure/tools/check_lpf2_data_budget_mutations.py --runtime-root .
+python3 src/Infrastructure/tools/check_lpf2_data_budget_mutations.py \
+  --runtime-root . --results-directory .local/lpf2-budget-results
 ```
 
 The mutation tool recompiles the actual model and requires executed NUnit
 assertion failures for ignoring a zero budget, never decrementing it and
 reserving only after byte delivery. Build/setup errors are not detections. It
-restores exact source bytes and recompiles/retests the baseline afterward. Run
+requires the same executed test identities, restores exact source bytes and
+recompiles/retests the baseline afterward. Fresh result directories retain raw
+TRX and separate stdout/stderr streams, including partial timeout output; existing
+results are never overwritten. Raw results stay runner-local and are not uploaded
+publicly by this workflow; hosted runner cleanup still limits their lifetime.
+Console diagnostics retain result hashes and failed test names. Run
 engine builds/tests on the hosted qualification runner. No compiled result is
-claimed before those runs finish.
+claimed before those runs finish. Eight lightweight mocked-process controls run
+with `python3 tools/test_lpf2_data_budget_mutations.py` from the Infrastructure
+root; they exercise failure classification, source restoration and evidence
+retention without invoking a C# compiler or an engine.
 
 For the subsequent actual firmware experiment, stop DATA, drain previously
 received frames through real guest ioctls and account for pending UART bytes.
