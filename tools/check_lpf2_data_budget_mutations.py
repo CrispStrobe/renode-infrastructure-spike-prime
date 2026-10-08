@@ -9,6 +9,8 @@ Original model bytes and the baseline compiled test assembly are restored.
 """
 import argparse
 import hashlib
+import os
+import signal
 from pathlib import Path
 import subprocess
 import tempfile
@@ -17,6 +19,33 @@ import xml.etree.ElementTree as ET
 MODEL = 'src/Emulator/Peripherals/Peripherals/UART/LegoLpf2Port.cs'
 PROJECT = 'src/Emulator/Peripherals/Test/PeripheralsTests/PeripheralsTests_NET.csproj'
 FILTER = 'FullyQualifiedName~LegoLpf2DataBudgetTests'
+
+
+def run_compiled(command, *, cwd, timeout):
+    """Bound the entire owned compiler/test process group before restoring source."""
+    if os.name != 'posix':
+        raise RuntimeError('Mutation compilation requires POSIX process-group supervision')
+    with subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, start_new_session=True) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except BaseException as error:
+            # This session belongs only to this invocation, never a shared build.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = process.communicate()
+            if isinstance(error, subprocess.TimeoutExpired):
+                raise subprocess.TimeoutExpired(command, timeout, output=stdout,
+                                                stderr=stderr) from error
+            raise
+        # Retire lingering compiler workers even after a successful parent exit.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def results(path):
@@ -56,6 +85,7 @@ def main():
             parser.error('Mutation boundary drift: ' + name)
     command = ['dotnet', 'test', str(project), '--configuration', 'Release', '--no-restore',
                '-p:GUI_DISABLED=true', '-p:CurrentPlatform=Linux', '-p:NET=true',
+               '-p:UseSharedCompilation=false', '-nodeReuse:false',
                '--filter', FILTER, '--logger', 'trx;LogFileName=tests.trx']
     if args.results_directory is None:
         output = Path(tempfile.mkdtemp(prefix='lpf2-data-budget-'))
@@ -69,8 +99,8 @@ def main():
         folder = output / name
         folder.mkdir()
         try:
-            completed = subprocess.run(command + ['--results-directory', str(folder)],
-                                       cwd=root, capture_output=True, timeout=600)
+            completed = run_compiled(command + ['--results-directory', str(folder)],
+                                     cwd=root, timeout=600)
         except subprocess.TimeoutExpired as error:
             (folder / 'stdout.log').write_bytes(error.stdout or b'')
             (folder / 'stderr.log').write_bytes(error.stderr or b'')

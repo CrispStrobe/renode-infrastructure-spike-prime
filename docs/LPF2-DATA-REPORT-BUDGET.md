@@ -74,10 +74,18 @@ results are never overwritten. Raw results stay runner-local and are not uploade
 publicly by this workflow; hosted runner cleanup still limits their lifetime.
 Console diagnostics retain result hashes and failed test names. Run
 engine builds/tests on the hosted qualification runner. No compiled result is
-claimed before those runs finish. Eight lightweight mocked-process controls run
+claimed before those runs finish. Twelve lightweight host controls run
 with `python3 tools/test_lpf2_data_budget_mutations.py` from the Infrastructure
-root; they exercise failure classification, source restoration and evidence
-retention without invoking a C# compiler or an engine.
+root: eight use mocked compiler results, and four check the small Python process
+supervisor, including actual owned parent/child timeout and successful-exit
+cleanup. They exercise failure classification, source restoration and evidence retention without invoking a C#
+compiler or an engine. The supervisor retires the invocation's owned POSIX
+process group on normal return, timeout or a caught Python exception before source restoration. Shared
+C# compilation and MSBuild node reuse are disabled for mutation invocations.
+Parent-only termination and omitted success-path cleanup mutations must fail
+the live-descendant controls; the control cleans up only its own process group.
+This does not guarantee cleanup of a descendant deliberately escaping its session,
+or preservation after unhandled termination of the supervisor or whole hosted job.
 
 For the subsequent actual firmware experiment, stop DATA, drain previously
 received frames through real guest ioctls and account for pending UART bytes.
