@@ -14,3 +14,4 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 tools/check_pybricks_references.py
+      - run: python3 tools/test_lpf2_data_budget_mutations.py

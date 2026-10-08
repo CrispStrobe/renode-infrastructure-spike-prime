@@ -232,9 +232,27 @@ namespace Antmicro.Renode.Peripherals.UART
 
         public void Reset()
         {
+            ResumeDataReports();
             Device?.Reset();
             ResetProtocol();
         }
+
+        // External fixture controls: call with emulation paused. Discovery,
+        // physics and protocol time continue; only DATA emission is budgeted.
+        public void SetDataReportBudget(uint reports)
+        {
+            DataReportsRemaining = reports;
+            DataReportsLimited = true;
+        }
+
+        public void ResumeDataReports()
+        {
+            DataReportsLimited = false;
+            DataReportsRemaining = 0;
+        }
+
+        public bool DataReportsLimited { get; private set; }
+        public uint DataReportsRemaining { get; private set; }
 
         public ILpf2Device Device { get; private set; }
         public Lpf2PortState State { get; private set; }
@@ -310,7 +328,7 @@ namespace Antmicro.Renode.Peripherals.UART
 
         private void SendCurrentData()
         {
-            if(Device == null)
+            if(Device == null || (DataReportsLimited && DataReportsRemaining == 0))
             {
                 return;
             }
@@ -323,6 +341,12 @@ namespace Antmicro.Renode.Peripherals.UART
             var padded = new byte[paddedLength];
             Array.Copy(payload, padded, payload.Length);
             var sizeCode = (byte)Math.Log(paddedLength, 2);
+            // Reserve before delivering bytes: a synchronous UART subscriber
+            // may request another report while receiving this one.
+            if(DataReportsLimited)
+            {
+                DataReportsRemaining--;
+            }
             SendMessage((byte)(0xc0 | (sizeCode << 3) | (SelectedMode & 0x7)), padded);
         }
 
