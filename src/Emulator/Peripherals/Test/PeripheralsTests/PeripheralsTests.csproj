@@ -84,6 +84,7 @@
     <Compile Include="STM32TimerSoftwareEventTests.cs" />
     <Compile Include="STM32TimerRolloverTests.cs" />
     <Compile Include="LegoLpf2PortTests.cs" />
+    <Compile Include="LegoLpf2DataBudgetTests.cs" />
     <Compile Include="LegoLpf2ElectricalPortTests.cs" />
     <Compile Include="LegoLpf2ElectricalAttachmentTests.cs" />
     <Compile Include="EFR32_I2CControllerTests.cs" />

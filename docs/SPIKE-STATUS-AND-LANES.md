@@ -130,3 +130,10 @@ and guest time separately. A lack of CPU fault is not proof of successful boot.
 Public changes and evidence contain public source paths/URLs only. External images,
 raw logs/transcripts and operational access are not published here. This work does
 not authorize upstream communication or physical hardware flashing.
+
+## Bounded DATA fixture candidate
+
+The [DATA-report budget candidate](LPF2-DATA-REPORT-BUDGET.md) defines a finite
+external UART emission control for active-session syscall experiments. Compiled
+model execution, mutations and firmware consumer adoption remain pending; this
+does not close M04 or establish atomic motor authority.
