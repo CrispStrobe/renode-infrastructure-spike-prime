@@ -74,9 +74,9 @@ results are never overwritten. Raw results stay runner-local and are not uploade
 publicly by this workflow; hosted runner cleanup still limits their lifetime.
 Console diagnostics retain result hashes and failed test names. Run
 engine builds/tests on the hosted qualification runner. No compiled result is
-claimed before those runs finish. Twelve lightweight host controls run
+claimed before those runs finish. Thirteen lightweight host controls run
 with `python3 tools/test_lpf2_data_budget_mutations.py` from the Infrastructure
-root: eight use mocked compiler results, and four check the small Python process
+root: eight use mocked compiler results, and five check the small Python process
 supervisor, including actual owned parent/child timeout and successful-exit
 cleanup. They exercise failure classification, source restoration and evidence retention without invoking a C#
 compiler or an engine. The supervisor retires the invocation's owned POSIX
@@ -100,3 +100,23 @@ New test, mutation tool and documentation components use BSD-3-Clause, with the
 full grant in `licenses/BSD-3-Clause.txt`. Retained discovery attribution and byte
 fixtures are unchanged. This is not whole-firmware independence or blanket licence
 clearance.
+
+## First compiled model result and host-observer correction
+
+[Runtime qualification](https://github.com/CrispStrobe/renode-spike-prime/actions/runs/37764701627)
+at Runtime `8f7696aac606d8de90c1a6a0930e48655f03530a` and Infrastructure
+`1253d925accca23dfda66d5bca61e78498dcb64f` passed the source-built native/runtime,
+focused and complete managed peripheral checks. The complete suite reported
+584 passed and five skipped cases; those skips are not executed coverage.
+The dedicated baseline and restored baseline each passed all eighteen cases.
+Ignoring the zero budget, retaining its allowance and reserving after delivery
+were detected by fifteen, eleven and one failed assertions respectively.
+
+One separate PR host-control run failed because Linux returned `ProcessLookupError`
+while reading a disappearing `/proc` entry. Its source-attribution check passed.
+The host observer now accepts that absence as stopped, alongside
+`FileNotFoundError`; other errors and live processes still fail. A deterministic
+regression reproduces the original exception before the correction. This changes
+only host test code and this evidence, with unchanged C# model and mutation runner.
+Affected actual firmware and separate MicroPython guest qualification remain
+required before consumer adoption; model-suite success alone does not close them.

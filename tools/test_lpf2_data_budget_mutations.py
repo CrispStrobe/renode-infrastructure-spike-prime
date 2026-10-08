@@ -182,13 +182,23 @@ class ProcessGroup(unittest.TestCase):
             stat = Path('/proc/%d/stat' % child_pid)
             try:
                 state = stat.read_text().rsplit(')', 1)[1].split()[0]
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
                 break
             if state == 'Z':
                 break
             if time.monotonic() >= deadline:
                 self.fail('Owned descendant remains live after invocation: ' + state)
             time.sleep(0.01)
+
+    def test_disappeared_proc_entry_counts_as_stopped(self):
+        for error in (FileNotFoundError(), ProcessLookupError()):
+            with self.subTest(error=type(error).__name__), \
+                    patch.object(Path, 'read_text', side_effect=error), \
+                    patch.object(self, 'addCleanup') as cleanup:
+                # Cleanup registration is intercepted; no synthetic PID is
+                # ever passed to a real process lookup or signal operation.
+                self.assert_stopped_owned_descendant(b'123 456')
+                cleanup.assert_called_once()
 
     def test_interruption_stops_group_and_reaps_before_propagating(self):
         process = MagicMock()
