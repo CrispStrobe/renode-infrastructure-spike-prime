@@ -57,7 +57,18 @@ namespace Antmicro.Renode.Peripherals.UART
             var motor=Device as Lpf2ElectricalMotor;
             if(motor != null && bridgeGpio != null)
             {
-                motor.SetDrive(BridgeDrive,BridgeBraking);
+                // One coherent sample per tick feeds both the motor and the
+                // duty integrator; the integrator never changes the motor.
+                var drive=BridgeDrive;
+                var braking=BridgeBraking;
+                motor.SetDrive(drive,braking);
+                lock(driveLock)
+                {
+                    driveSum+=drive;
+                    driveTicks++;
+                    if(braking) brakingTicks++;
+                    lastDrive=drive;
+                }
             }
             // Discovery starts after the unchanged driver switches TX to UART.
             // Mechanics keep advancing while UART is unavailable; discovery does not.
@@ -90,8 +101,42 @@ namespace Antmicro.Renode.Peripherals.UART
             && Mode(bridgeGpio2,bridgePin2)==1 && Level(bridgeGpio,bridgePin1) && Level(bridgeGpio2,bridgePin2);
         public new void Attach(string device)
         {
-            if(device == "motor" || device == "medium-motor") AttachDevice(new Lpf2ElectricalMotor());
+            if(device == "motor" || device == "medium-motor") AttachDevice(NewMotor());
             else base.Attach(device);
+        }
+        // Robot Lab lockstep (external shaft). Once enabled, the shaft of the
+        // attached motor, and of any motor attached later on this port, comes
+        // from SetShaft instead of the synthetic mechanics. Never switched back.
+        // Call with the machine paused, like the other fixture controls.
+        public void EnableExternalShaft()
+        {
+            externalShaft=true;
+            (Device as Lpf2ElectricalMotor)?.EnableExternalShaft();
+        }
+        public bool ExternalShaft => externalShaft;
+        public void SetShaft(double positionDegrees, double speedDegreesPerSecond)
+        {
+            var motor=Device as Lpf2ElectricalMotor;
+            if(motor == null) throw new InvalidOperationException("No electrical motor is attached to this port");
+            motor.SetShaft(positionDegrees,speedDegreesPerSecond);
+        }
+        // Mean, last and braking count of the H-bridge samples taken by Tick
+        // (one per millisecond of virtual time) since the previous call; resets
+        // the accumulator. Ticks counts only samples fed to an attached motor.
+        public Lpf2DriveAverage TakeDriveAverage()
+        {
+            lock(driveLock)
+            {
+                var result=new Lpf2DriveAverage(driveTicks==0 ? 0.0 : (double)driveSum/driveTicks,lastDrive,brakingTicks,driveTicks);
+                driveSum=0;driveTicks=0;brakingTicks=0;
+                return result;
+            }
+        }
+        private Lpf2ElectricalMotor NewMotor()
+        {
+            var motor=new Lpf2ElectricalMotor();
+            if(externalShaft) motor.EnableExternalShaft();
+            return motor;
         }
         // Contract taken from the local NuttX board stm32_legoport_pwm.c:
         // PWM mode 1 with inverted polarity, AF1/TIM1 or AF2/TIM3/TIM4.
@@ -115,6 +160,22 @@ namespace Antmicro.Renode.Peripherals.UART
         private readonly int id1Pin,id2Pin,txPin,rxPin,bridgePin1,bridgePin2,channel1,channel2,bridgeAlternateFunction;
         private readonly bool advancedTimer;
         private readonly IManagedThread feeder;
+        private readonly object driveLock=new object();
+        private long driveSum;
+        private int driveTicks,brakingTicks,lastDrive;
+        private bool externalShaft;
+    }
+    public sealed class Lpf2DriveAverage
+    {
+        public Lpf2DriveAverage(double meanDrive, int lastDrive, int brakingTicks, int ticks)
+        {
+            MeanDrive=meanDrive;LastDrive=lastDrive;BrakingTicks=brakingTicks;Ticks=ticks;
+        }
+        // Signed H-bridge drive in 1/10000 of full duty, as BridgeDrive.
+        public double MeanDrive { get; }
+        public int LastDrive { get; }
+        public int BrakingTicks { get; }
+        public int Ticks { get; }
     }
     // Deterministic mechanical policy, not a calibrated model of a real motor.
     public sealed class Lpf2ElectricalMotor : ILpf2Device
@@ -133,11 +194,42 @@ namespace Antmicro.Renode.Peripherals.UART
         public int EncoderDegrees => (int)Math.Round(position);
         public double AngularVelocityDegreesPerSecond => speed;
         public int LoadPercent { get; private set; }
-        public bool Stalled => duty!=0 && LoadPercent==100;
-        public void SetLoad(byte value) { if(value>100)throw new ArgumentOutOfRangeException(nameof(value));LoadPercent=value; }
+        public bool Stalled => !external && duty!=0 && LoadPercent==100;
+        public bool ExternalShaft => external;
+        public void SetLoad(byte value)
+        {
+            if(external)throw new InvalidOperationException("Load is a property of the external shaft's physics, not of this motor");
+            if(value>100)throw new ArgumentOutOfRangeException(nameof(value));LoadPercent=value;
+        }
         public void SetDrive(int value,bool braking) { if(value < -10000 || value>10000)throw new ArgumentOutOfRangeException(nameof(value));duty=value;brake=braking; }
+        // External shaft: the position and speed come from an outside physics
+        // engine. Between anchors the shaft extrapolates linearly, so encoder
+        // reports inside one lockstep quantum see a continuous shaft.
+        public void EnableExternalShaft()
+        {
+            if(external) return;
+            external=true;
+            LoadPercent=0;
+            Anchor(position,speed);
+        }
+        public void SetShaft(double positionDegrees, double speedDegreesPerSecond)
+        {
+            if(!external)throw new InvalidOperationException("SetShaft requires EnableExternalShaft");
+            if(double.IsNaN(positionDegrees) || double.IsInfinity(positionDegrees) || Math.Abs(positionDegrees)>1e12)
+                throw new ArgumentOutOfRangeException(nameof(positionDegrees));
+            if(double.IsNaN(speedDegreesPerSecond) || double.IsInfinity(speedDegreesPerSecond) || Math.Abs(speedDegreesPerSecond)>1e7)
+                throw new ArgumentOutOfRangeException(nameof(speedDegreesPerSecond));
+            Anchor(positionDegrees,speedDegreesPerSecond);
+        }
         public void Advance(uint milliseconds)
         {
+            if(external)
+            {
+                // Exact from the anchor, never accumulated: no drift between anchors.
+                anchorMilliseconds+=milliseconds;
+                position=anchorPosition+speed*anchorMilliseconds/1000.0;
+                return;
+            }
             var seconds=milliseconds/1000.0;
             var target=Stalled ? 0 : duty*1110.0/10000*(100-LoadPercent)/100;
             var old=speed;
@@ -156,9 +248,16 @@ namespace Antmicro.Renode.Peripherals.UART
             throw new ArgumentOutOfRangeException(nameof(mode));
         }
         public void AcceptOutput(byte mode,byte[] payload) { throw new NotSupportedException("Motor drive comes from the physical H-bridge pins"); }
-        public void Reset() { duty=0;speed=position=0;LoadPercent=0;brake=false; }
+        public void Reset() { duty=0;speed=position=0;LoadPercent=0;brake=false;if(external)Anchor(0,0); }
+        private void Anchor(double positionDegrees, double speedDegreesPerSecond)
+        {
+            position=anchorPosition=positionDegrees;
+            speed=speedDegreesPerSecond;
+            anchorMilliseconds=0;
+        }
         private int duty;
-        private bool brake;
-        private double speed,position;
+        private bool brake,external;
+        private double speed,position,anchorPosition;
+        private ulong anchorMilliseconds;
     }
 }
