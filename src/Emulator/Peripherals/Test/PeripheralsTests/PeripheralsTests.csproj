@@ -87,6 +87,7 @@
     <Compile Include="LegoLpf2DataBudgetTests.cs" />
     <Compile Include="LegoLpf2ElectricalPortTests.cs" />
     <Compile Include="LegoLpf2ElectricalAttachmentTests.cs" />
+    <Compile Include="LegoLpf2ExternalShaftTests.cs" />
     <Compile Include="EFR32_I2CControllerTests.cs" />
     <Compile Include="FT5336Test.cs" />
     <Compile Include="GenericSpiFlashW25Q256Tests.cs" />
