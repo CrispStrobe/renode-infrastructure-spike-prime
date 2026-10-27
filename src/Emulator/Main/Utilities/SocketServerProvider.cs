@@ -31,9 +31,31 @@ namespace Antmicro.Renode.Utilities
             this.serverName = serverName;
         }
 
+        public const string BindAddressVariable = "RENODE_SERVER_BIND_ADDRESS";
+
+        /// <summary>
+        /// Address the monitor and other socket servers listen on. Defaults to all
+        /// interfaces (unchanged); set RENODE_SERVER_BIND_ADDRESS (for example
+        /// 127.0.0.1) to listen on one address only. An unparsable value is refused.
+        /// </summary>
+        public static IPAddress BindAddress => ParseBindAddress(Environment.GetEnvironmentVariable(BindAddressVariable));
+
+        public static IPAddress ParseBindAddress(string value)
+        {
+            if(string.IsNullOrEmpty(value))
+            {
+                return IPAddress.Any;
+            }
+            if(!IPAddress.TryParse(value, out var address) || address.AddressFamily != AddressFamily.InterNetwork)
+            {
+                throw new ArgumentException($"{BindAddressVariable} must be an IPv4 address, got '{value}'");
+            }
+            return address;
+        }
+
         public void Start(int port)
         {
-            server = SocketsManager.Instance.AcquireSocket(null, AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp, new IPEndPoint(IPAddress.Any, port), listeningBacklog: 1, nameAppendix: this.serverName);
+            server = SocketsManager.Instance.AcquireSocket(null, AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp, new IPEndPoint(BindAddress, port), listeningBacklog: 1, nameAppendix: this.serverName);
 
             listenerThread = new Thread(ListenerThreadBody)
             {

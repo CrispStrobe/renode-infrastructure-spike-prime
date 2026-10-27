@@ -66,3 +66,30 @@ namespace Antmicro.Renode.Utilities
         private string directory;
     }
 }
+
+namespace Antmicro.Renode.Utilities
+{
+    [TestFixture]
+    public class SocketServerBindAddressTests
+    {
+        [Test]
+        public void ShouldDefaultToAllInterfaces()
+        {
+            Assert.AreEqual(System.Net.IPAddress.Any, SocketServerProvider.ParseBindAddress(null));
+            Assert.AreEqual(System.Net.IPAddress.Any, SocketServerProvider.ParseBindAddress(""));
+        }
+
+        [Test]
+        public void ShouldBindLoopbackWhenConfigured()
+        {
+            Assert.AreEqual(System.Net.IPAddress.Loopback, SocketServerProvider.ParseBindAddress("127.0.0.1"));
+        }
+
+        [Test]
+        public void ShouldRefuseInvalidAddress()
+        {
+            Assert.Throws<System.ArgumentException>(() => SocketServerProvider.ParseBindAddress("localhost"));
+            Assert.Throws<System.ArgumentException>(() => SocketServerProvider.ParseBindAddress("::1"));
+        }
+    }
+}
