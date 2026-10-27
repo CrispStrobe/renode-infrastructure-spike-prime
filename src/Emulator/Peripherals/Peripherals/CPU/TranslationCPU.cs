@@ -1069,7 +1069,12 @@ namespace Antmicro.Renode.Peripherals.CPU
             TlibDispose();
             RenodeFreeHostBlocks();
             binder.Dispose();
-            if(!EmulationManager.DisableEmulationFilesCleanup)
+            if(ShippedTranslationLibraries.IsShipped(libraryFile))
+            {
+                // Never delete a shipped library; allow a later CPU to load it again.
+                ShippedTranslationLibraries.Release(libraryFile);
+            }
+            else if(!EmulationManager.DisableEmulationFilesCleanup)
             {
                 File.Delete(libraryFile);
             }
@@ -1598,11 +1603,19 @@ namespace Antmicro.Renode.Peripherals.CPU
             // PowerPC always uses the big-endian translation library
             var endianSuffix = (Endianness == Endianess.BigEndian || Architecture.StartsWith("ppc")) ? "be" : "le";
             var libraryResource = string.Format("Antmicro.Renode.translate-{0}-{1}.so", Architecture, endianSuffix);
-            foreach(var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            if(ShippedTranslationLibraries.TryClaim(libraryResource, out var shippedLibrary))
             {
-                if(assembly.TryFromResourceToTemporaryFile(libraryResource, out libraryFile, $"{CpuCounter}-{libraryResource}"))
+                libraryFile = shippedLibrary;
+                this.Log(LogLevel.Info, "Using shipped translation library {0}", libraryFile);
+            }
+            else
+            {
+                foreach(var assembly in AppDomain.CurrentDomain.GetAssemblies())
                 {
-                    break;
+                    if(assembly.TryFromResourceToTemporaryFile(libraryResource, out libraryFile, $"{CpuCounter}-{libraryResource}"))
+                    {
+                        break;
+                    }
                 }
             }
 

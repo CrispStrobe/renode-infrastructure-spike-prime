@@ -102,6 +102,7 @@
     <Compile Include="Mocks\MachineTestPeripheral.cs" />
     <Compile Include="MiscTests.cs" />
     <Compile Include="BitHelperTests.cs" />
+    <Compile Include="ShippedTranslationLibrariesTests.cs" />
     <Compile Include="CRCTests.cs" />
     <Compile Include="PacketTests.cs" />
     <Compile Include="AccessConditionParserTests.cs" />
