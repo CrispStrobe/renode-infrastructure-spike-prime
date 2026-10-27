@@ -1500,6 +1500,7 @@
     <Compile Include="Emulator/Main/Peripherals/SENT/Messages.cs" />
     <Compile Include="Emulator/Main/Peripherals/CFU/ICFU.cs" />
     <Compile Include="Emulator/Main/Utilities/SharedLibraries.cs" />
+    <Compile Include="Emulator/Main/Utilities/ShippedTranslationLibraries.cs" />
     <Compile Include="Emulator/Main/Peripherals/Network/INetworkInterface.cs" />
     <Compile Include="Emulator/Main/Peripherals/IAbsoluteAddressAware.cs" />
     <Compile Include="Emulator/Main/Utilities/TypeManager.cs" />
